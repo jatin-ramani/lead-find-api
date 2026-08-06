@@ -27,5 +27,6 @@ class PaginationResponse(BaseModel):
 
 
 class BusinessListResponse(BaseModel):
-    items: List[BusinessResponse]
+    success: bool
+    data: List[BusinessResponse]
     pagination: PaginationResponse
