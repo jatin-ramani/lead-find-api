@@ -5,6 +5,12 @@ from sqlalchemy.orm import Session
 
 from database.db import get_db
 from database.crud import (
+    DEFAULT_PAGE_SIZE,
+    DEFAULT_SORT_BY,
+    DEFAULT_SORT_ORDER,
+    MAX_PAGE_SIZE,
+    SORTABLE_COLUMNS,
+    SORT_ORDERS,
     get_businesses,
     get_business_by_id,
     delete_business,
@@ -26,12 +32,49 @@ router = APIRouter(
     response_model=BusinessListResponse,
 )
 def list_businesses(
-    page: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
-    search: Optional[str] = None,
-    city: Optional[str] = None,
-    category: Optional[str] = None,
-    status: Optional[str] = None,
+    page: int = Query(
+        1,
+        ge=1,
+        description="1-based page number.",
+    ),
+    pageSize: int = Query(
+        DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+        description=f"Rows per page (max {MAX_PAGE_SIZE}).",
+    ),
+    search: Optional[str] = Query(
+        None,
+        description="Matches name, phone, email or website.",
+    ),
+    city: Optional[str] = Query(
+        None,
+        description="Exact city match.",
+    ),
+    category: Optional[str] = Query(
+        None,
+        description="Exact category match.",
+    ),
+    status: Optional[str] = Query(
+        None,
+        description="Exact status match, e.g. 'No Website'.",
+    ),
+    sortBy: Optional[str] = Query(
+        DEFAULT_SORT_BY,
+        description=(
+            "One of: "
+            + ", ".join(SORTABLE_COLUMNS)
+            + f". Any other value falls back to '{DEFAULT_SORT_BY}'."
+        ),
+    ),
+    sortOrder: Optional[str] = Query(
+        DEFAULT_SORT_ORDER,
+        description=(
+            "One of: "
+            + ", ".join(SORT_ORDERS)
+            + f". Any other value falls back to '{DEFAULT_SORT_ORDER}'."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     return get_businesses(
@@ -42,6 +85,8 @@ def list_businesses(
         city=city,
         category=category,
         status=status,
+        sort_by=sortBy,
+        sort_order=sortOrder,
     )
 
 

@@ -21,6 +21,21 @@ SEARCHABLE_COLUMNS = (
     Business.website,
 )
 
+# Whitelist of sortable columns. Anything outside this map falls back to the
+# default, so an arbitrary query string can never reach the ORDER BY clause.
+SORTABLE_COLUMNS: Dict[str, Any] = {
+    "id": Business.id,
+    "name": Business.name,
+    "city": Business.city,
+    "category": Business.category,
+    "status": Business.status,
+}
+
+SORT_ORDERS = ("asc", "desc")
+
+DEFAULT_SORT_BY = "id"
+DEFAULT_SORT_ORDER = "desc"
+
 
 def _clean(value: Optional[str]) -> Optional[str]:
     """Trim a filter value and treat blank strings as "no filter"."""
@@ -82,6 +97,36 @@ def _apply_business_filters(
     return query
 
 
+def _resolve_ordering(
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
+) -> List[Any]:
+    """
+    Translate the requested sort into ORDER BY clauses.
+
+    Unknown columns fall back to `id` and unknown directions to `desc`, so a
+    bad value degrades to the default instead of raising.
+    """
+
+    key = (_clean(sort_by) or "").lower()
+    column = SORTABLE_COLUMNS.get(key, SORTABLE_COLUMNS[DEFAULT_SORT_BY])
+
+    direction = (_clean(sort_order) or "").lower()
+
+    if direction not in SORT_ORDERS:
+        direction = DEFAULT_SORT_ORDER
+
+    primary = column.asc() if direction == "asc" else column.desc()
+
+    if column is SORTABLE_COLUMNS[DEFAULT_SORT_BY]:
+        return [primary]
+
+    # name/city/category/status are not unique, so rows sharing a value have no
+    # defined order of their own. Without a tiebreaker a record can repeat on
+    # one page and be missing from the next.
+    return [primary, Business.id.desc()]
+
+
 def save_business(
     db: Session,
     name: Optional[str],
@@ -134,12 +179,16 @@ def get_businesses(
     city: Optional[str] = None,
     category: Optional[str] = None,
     status: Optional[str] = None,
+    sort_by: Optional[str] = DEFAULT_SORT_BY,
+    sort_order: Optional[str] = DEFAULT_SORT_ORDER,
 ) -> Dict[str, Any]:
     """
     Return a page of businesses together with its pagination metadata.
 
     `search` matches name, phone, email or website. `city`, `category` and
-    `status` are exact-match filters. All of them are optional.
+    `status` are exact-match filters. `sort_by` accepts id, name, city,
+    category or status; `sort_order` accepts asc or desc. All are optional and
+    invalid values fall back to the defaults.
     """
 
     # Clamp the paging inputs so a bad query string cannot request a negative
@@ -168,7 +217,7 @@ def get_businesses(
         query
         # An explicit order is required for stable paging; without it the
         # database may return rows in a different order per page.
-        .order_by(Business.id.desc())
+        .order_by(*_resolve_ordering(sort_by, sort_order))
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
