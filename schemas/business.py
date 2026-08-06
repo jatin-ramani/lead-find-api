@@ -1,5 +1,6 @@
+from typing import List, Optional
+
 from pydantic import BaseModel
-from typing import Optional
 
 
 class BusinessResponse(BaseModel):
@@ -16,3 +17,15 @@ class BusinessResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+
+class PaginationResponse(BaseModel):
+    page: int
+    pageSize: int
+    totalItems: int
+    totalPages: int
+
+
+class BusinessListResponse(BaseModel):
+    items: List[BusinessResponse]
+    pagination: PaginationResponse
