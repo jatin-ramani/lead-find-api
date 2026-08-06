@@ -1,32 +1,74 @@
-from fastapi import APIRouter
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from database.db import SessionLocal
-from database.models import Business
+from database.db import get_db
+from database.crud import (
+    get_businesses,
+    get_business_by_id,
+    delete_business,
+)
 
-router = APIRouter()
+from schemas.business import BusinessResponse
+
+router = APIRouter(
+    prefix="/businesses",
+    tags=["Businesses"],
+)
 
 
-@router.get("/businesses")
-def get_businesses():
+@router.get(
+    "",
+    response_model=List[BusinessResponse]
+)
+def list_businesses(
+    db: Session = Depends(get_db),
+):
+    return get_businesses(db)
 
-    db: Session = SessionLocal()
 
-    businesses = db.query(Business).all()
+@router.get(
+    "/{business_id}",
+    response_model=BusinessResponse
+)
+def get_business(
+    business_id: int,
+    db: Session = Depends(get_db),
+):
 
-    result = []
+    business = get_business_by_id(
+        db,
+        business_id,
+    )
 
-    for b in businesses:
-        result.append({
-            "id": b.id,
-            "name": b.name,
-            "phone": b.phone,
-            "email": b.email,
-            "website": b.website,
-            "city": b.city,
-            "status": b.status,
-        })
+    if not business:
+        raise HTTPException(
+            status_code=404,
+            detail="Business not found",
+        )
 
-    db.close()
+    return business
 
-    return result
+
+@router.delete("/{business_id}")
+def remove_business(
+    business_id: int,
+    db: Session = Depends(get_db),
+):
+
+    deleted = delete_business(
+        db,
+        business_id,
+    )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Business not found",
+        )
+
+    return {
+        "success": True,
+        "message": "Business deleted successfully.",
+    }

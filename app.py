@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.business import router as business_router
 from api.scanner import router as scanner_router
+from api.scan_jobs import router as scan_jobs_router
+from api.dashboard import router as dashboard_router
 
 app = FastAPI(
     title="Lead Finder API",
@@ -28,3 +30,5 @@ def home():
 
 app.include_router(business_router)
 app.include_router(scanner_router)
+app.include_router(scan_jobs_router)
+app.include_router(dashboard_router)

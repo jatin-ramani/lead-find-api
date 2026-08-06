@@ -35,5 +35,10 @@ class ScanJob(Base):
     progress = Column(Integer, default=0)
 
     total_businesses = Column(Integer, default=0)
-
     new_businesses = Column(Integer, default=0)
+
+    # NEW
+    total_cells = Column(Integer, default=0)
+    completed_cells = Column(Integer, default=0)
+
+    current_cell = Column(String)
