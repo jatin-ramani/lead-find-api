@@ -1,6 +1,6 @@
-from typing import List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.db import get_db
@@ -10,7 +10,10 @@ from database.crud import (
     delete_business,
 )
 
-from schemas.business import BusinessResponse
+from schemas.business import (
+    BusinessResponse,
+    BusinessListResponse,
+)
 
 router = APIRouter(
     prefix="/businesses",
@@ -20,17 +23,31 @@ router = APIRouter(
 
 @router.get(
     "",
-    response_model=List[BusinessResponse]
+    response_model=BusinessListResponse,
 )
 def list_businesses(
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    return get_businesses(db)
+    return get_businesses(
+        db=db,
+        page=page,
+        page_size=pageSize,
+        search=search,
+        city=city,
+        category=category,
+        status=status,
+    )
 
 
 @router.get(
     "/{business_id}",
-    response_model=BusinessResponse
+    response_model=BusinessResponse,
 )
 def get_business(
     business_id: int,

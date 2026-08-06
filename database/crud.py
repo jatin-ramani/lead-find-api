@@ -1,4 +1,8 @@
-from sqlalchemy.orm import Session
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import or_
+from sqlalchemy.orm import Query, Session
+
 from database.models import Business, ScanJob
 
 
@@ -6,26 +10,102 @@ from database.models import Business, ScanJob
 # BUSINESS CRUD
 # ======================================================
 
-def save_business(
-    db: Session,
-    name,
-    phone,
-    email,
-    website,
-    city,
-    category,
-    address,
-    status,
-    place_id,
-):
-    existing = (
-        db.query(Business)
-        .filter(Business.place_id == place_id)
-        .first()
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
+# Columns the free-text search runs across.
+SEARCHABLE_COLUMNS = (
+    Business.name,
+    Business.phone,
+    Business.email,
+    Business.website,
+)
+
+
+def _clean(value: Optional[str]) -> Optional[str]:
+    """Trim a filter value and treat blank strings as "no filter"."""
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+
+    return cleaned or None
+
+
+def _escape_like(term: str) -> str:
+    """
+    Escape LIKE wildcards so a literal % or _ in a search term is matched
+    literally instead of behaving as a pattern.
+    """
+    return (
+        term.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
     )
 
-    if existing:
-        return False
+
+def _apply_business_filters(
+    query: Query,
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+) -> Query:
+    """Apply the optional search and filter clauses to a Business query."""
+
+    search = _clean(search)
+    city = _clean(city)
+    category = _clean(category)
+    status = _clean(status)
+
+    if search:
+        pattern = f"%{_escape_like(search)}%"
+
+        query = query.filter(
+            or_(
+                *[
+                    column.ilike(pattern, escape="\\")
+                    for column in SEARCHABLE_COLUMNS
+                ]
+            )
+        )
+
+    if city:
+        query = query.filter(Business.city == city)
+
+    if category:
+        query = query.filter(Business.category == category)
+
+    if status:
+        query = query.filter(Business.status == status)
+
+    return query
+
+
+def save_business(
+    db: Session,
+    name: Optional[str],
+    phone: Optional[str],
+    email: Optional[str],
+    website: Optional[str],
+    city: Optional[str],
+    category: Optional[str],
+    address: Optional[str],
+    status: Optional[str],
+    place_id: Optional[str],
+) -> bool:
+    # `WHERE place_id = NULL` never matches, so the lookup is only meaningful
+    # when we actually have an id to match on.
+    if place_id:
+
+        existing = (
+            db.query(Business)
+            .filter(Business.place_id == place_id)
+            .first()
+        )
+
+        if existing:
+            return False
 
     business = Business(
         name=name,
@@ -41,15 +121,72 @@ def save_business(
 
     db.add(business)
     db.commit()
+    db.refresh(business)
 
     return True
 
 
-def get_businesses(db: Session):
-    return db.query(Business).all()
+def get_businesses(
+    db: Session,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Return a page of businesses together with its pagination metadata.
+
+    `search` matches name, phone, email or website. `city`, `category` and
+    `status` are exact-match filters. All of them are optional.
+    """
+
+    # Clamp the paging inputs so a bad query string cannot request a negative
+    # offset or pull the whole table in one response.
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
+    query = _apply_business_filters(
+        db.query(Business),
+        search=search,
+        city=city,
+        category=category,
+        status=status,
+    )
+
+    total_items = query.count()
+
+    # Integer ceiling, floored at 1 so the client always has a page to render
+    # even when the result set is empty.
+    total_pages = max(
+        1,
+        (total_items + page_size - 1) // page_size,
+    )
+
+    items: List[Business] = (
+        query
+        # An explicit order is required for stable paging; without it the
+        # database may return rows in a different order per page.
+        .order_by(Business.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return {
+        "success": True,
+        "data": items,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "totalItems": total_items,
+            "totalPages": total_pages,
+        },
+    }
 
 
-def get_business_by_id(db: Session, business_id: int):
+def get_business_by_id(db: Session, business_id: int) -> Optional[Business]:
     return (
         db.query(Business)
         .filter(Business.id == business_id)
@@ -57,7 +194,7 @@ def get_business_by_id(db: Session, business_id: int):
     )
 
 
-def delete_business(db: Session, business_id: int):
+def delete_business(db: Session, business_id: int) -> bool:
 
     business = get_business_by_id(db, business_id)
 
@@ -157,9 +294,6 @@ def delete_scan_job(db: Session, job_id: int):
     db.commit()
 
     return True
-
-
-from sqlalchemy import func
 
 
 # ======================================================
