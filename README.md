@@ -16,16 +16,86 @@ venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
 
-Create a `.env` alongside `app.py`:
+---
 
-```ini
-GEOAPIFY_API_KEY=your-key-here
+## Configuration
 
-# Optional. Defaults to the bundled SQLite file.
-# DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/leadfinder
+Every tunable value lives in **`config.py`**. No other module reads the
+environment; they all import `settings`. Values resolve in this order:
+
+1. real environment variables (containers, CI)
+2. `backend/.env` (developer convenience, gitignored)
+3. the defaults in `config.py`, which reproduce historical behaviour
+
+```bash
+cp .env.example .env
+# then set GEOAPIFY_API_KEY
 ```
 
-> `.env` holds a live API key — it must never be committed.
+`.env.example` documents every setting. The defaults are enough to run
+locally — only `GEOAPIFY_API_KEY` is genuinely needed, and only for scanning.
+
+### Environments
+
+`ENVIRONMENT` is one of `development`, `testing`, `production`. Setting it to
+`production` turns on extra checks that **refuse to start** if violated:
+
+| Rule | Why |
+|---|---|
+| `GEOAPIFY_API_KEY` must be set | scanning is the product; a missing key would only surface at the first scan |
+| `DATABASE_URL` must not be SQLite | SQLite allows one writer, and background scrape jobs contend with API requests |
+| `CORS_ORIGINS` must not contain `*` | credentialed requests from any origin |
+| `/docs` and `/redoc` are hidden | unless `DEBUG=true` |
+
+### Fail-fast
+
+Configuration is validated when `config.py` is imported — before the app binds
+a port. An invalid value prints a readable summary and exits `1`:
+
+```
+====================================================================
+ Lead Finder failed to start: invalid configuration
+====================================================================
+  GEOAPIFY_API_KEY: Value error, GEOAPIFY_API_KEY is required when ENVIRONMENT=production
+
+  Set these in the environment or in backend/.env
+  See backend/.env.example for the full list.
+====================================================================
+```
+
+### Settings reference
+
+| Group | Keys |
+|---|---|
+| Environment | `ENVIRONMENT`, `DEBUG` |
+| App | `APP_NAME`, `APP_VERSION` |
+| Database | `DATABASE_URL`, `DATABASE_ECHO`, `DATABASE_POOL_RECYCLE_SECONDS` |
+| CORS | `CORS_ORIGINS`, `CORS_ALLOW_CREDENTIALS` |
+| Geoapify | `GEOAPIFY_API_KEY`, `GEOAPIFY_PLACES_URL`, `GEOAPIFY_GEOCODE_URL`, `GEOAPIFY_TIMEOUT_SECONDS`, `GEOAPIFY_SEARCH_LIMIT`, `GEOAPIFY_SEARCH_RADIUS_METRES` |
+| Scraper | `SCRAPER_TIMEOUT_SECONDS`, `SCRAPER_MAX_RESPONSE_BYTES`, `SCRAPER_USER_AGENT` |
+| Pagination | `DEFAULT_PAGE_SIZE`, `MAX_PAGE_SIZE` |
+| Logging | `LOG_LEVEL`, `LOG_FORMAT` |
+
+`CORS_ORIGINS` accepts either form:
+
+```ini
+CORS_ORIGINS=https://app.example.com,https://admin.example.com
+CORS_ORIGINS=["https://app.example.com","https://admin.example.com"]
+```
+
+### Adding a setting
+
+Add the field to `Settings` in `config.py` with a default, document it in
+`.env.example`, and import `settings` where it is used. Do not call
+`os.getenv` anywhere else — that is the thing this module exists to prevent.
+
+### Secrets
+
+`.env` is gitignored and must never be committed. In production, supply
+configuration through the platform's secret store (ECS task definition,
+Kubernetes Secret, Fly secrets, Render environment group) rather than a file
+on disk. `/system` deliberately reports the database **dialect**, never the
+URL, because a connection string carries credentials.
 
 ---
 
@@ -160,6 +230,7 @@ backend/
 │   └── versions/              # migration history
 ├── alembic.ini
 ├── api/                       # routers — thin, no business logic
+├── config.py                  # ALL configuration; the only reader of env
 ├── database/
 │   ├── db.py                  # engine, session, Base
 │   ├── models.py              # SQLAlchemy models (source of truth)

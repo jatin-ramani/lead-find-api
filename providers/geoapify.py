@@ -1,12 +1,33 @@
-import os
-import requests
-from dotenv import load_dotenv
+import logging
 
+import requests
+
+from config import settings
 from services.geocoder import get_coordinates
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-API_KEY = os.getenv("GEOAPIFY_API_KEY")
+
+def _request(params: dict) -> list:
+    """Call the Places API and return its features, raising on any error."""
+
+    if not settings.GEOAPIFY_API_KEY:
+        raise RuntimeError(
+            "GEOAPIFY_API_KEY is not configured; cannot query Geoapify."
+        )
+
+    response = requests.get(
+        settings.GEOAPIFY_PLACES_URL,
+        params={**params, "apiKey": settings.GEOAPIFY_API_KEY},
+        timeout=settings.GEOAPIFY_TIMEOUT_SECONDS,
+    )
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Geoapify Error {response.status_code}: {response.text}"
+        )
+
+    return response.json().get("features", [])
 
 
 def search_businesses(city: str, category: str):
@@ -18,58 +39,32 @@ def search_businesses(city: str, category: str):
 
     latitude, longitude = coords
 
-    url = "https://api.geoapify.com/v2/places"
-
-    params = {
-        "categories": category,
-        "filter": f"circle:{longitude},{latitude},5000",
-        "limit": 20,
-        "apiKey": API_KEY,
-    }
-
-    response = requests.get(
-    url,
-    params=params,
-    timeout=30,
+    return _request(
+        {
+            "categories": category,
+            "filter": (
+                f"circle:{longitude},{latitude},"
+                f"{settings.GEOAPIFY_SEARCH_RADIUS_METRES}"
+            ),
+            "limit": settings.GEOAPIFY_SEARCH_LIMIT,
+        }
     )
 
-    if response.status_code != 200:
-
-        raise Exception(
-            f"Geoapify Error {response.status_code}: {response.text}"
-        )
-
-    data = response.json()
-
-    return data.get("features", [])
 
 def search_businesses_by_location(
     latitude: float,
     longitude: float,
     category: str,
-    radius: int = 500,
+    radius: int = None,
 ):
 
-    url = "https://api.geoapify.com/v2/places"
+    if radius is None:
+        radius = settings.GEOAPIFY_SEARCH_RADIUS_METRES
 
-    params = {
-        "categories": category,
-        "filter": f"circle:{longitude},{latitude},{radius}",
-        "limit": 20,
-        "apiKey": API_KEY,
-    }
-
-    response = requests.get(
-        url,
-        params=params,
-        timeout=30,
+    return _request(
+        {
+            "categories": category,
+            "filter": f"circle:{longitude},{latitude},{radius}",
+            "limit": settings.GEOAPIFY_SEARCH_LIMIT,
+        }
     )
-
-    if response.status_code != 200:
-        raise Exception(
-            f"Geoapify Error {response.status_code}: {response.text}"
-        )
-
-    data = response.json()
-
-    return data.get("features", [])

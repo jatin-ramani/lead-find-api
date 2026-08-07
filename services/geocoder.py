@@ -1,45 +1,54 @@
-import os
+import logging
+from typing import Optional, Tuple
+
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import settings
 
-API_KEY = os.getenv("GEOAPIFY_API_KEY")
+logger = logging.getLogger(__name__)
 
 
-def get_coordinates(city):
-    url = "https://api.geoapify.com/v1/geocode/search"
+def get_coordinates(city: str) -> Optional[Tuple[float, float]]:
+    """
+    Resolve a city name to (latitude, longitude), or None if it cannot be
+    resolved.
+    """
 
-    params = {
-        "text": city,
-        "limit": 1,
-        "apiKey": API_KEY
-    }
+    if not settings.GEOAPIFY_API_KEY:
+        raise RuntimeError(
+            "GEOAPIFY_API_KEY is not configured; cannot geocode."
+        )
 
-    response = requests.get(url, params=params)
+    try:
+        response = requests.get(
+            settings.GEOAPIFY_GEOCODE_URL,
+            params={
+                "text": city,
+                "limit": 1,
+                "apiKey": settings.GEOAPIFY_API_KEY,
+            },
+            # Without a timeout a hung connection pins the worker thread for
+            # the lifetime of the process.
+            timeout=settings.GEOAPIFY_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        logger.exception("Geocoding request failed for %r", city)
+        return None
 
     if response.status_code != 200:
-        print("Error:", response.status_code)
+        logger.error(
+            "Geocoding failed for %r: HTTP %s", city, response.status_code
+        )
         return None
 
-    data = response.json()
+    # `.get` rather than `[...]`: a payload without "features" should return
+    # no match, not raise KeyError inside a background job.
+    features = response.json().get("features") or []
 
-    if not data["features"]:
+    if not features:
+        logger.info("No geocoding match for %r", city)
         return None
 
-    coordinates = data["features"][0]["geometry"]["coordinates"]
-
-    longitude = coordinates[0]
-    latitude = coordinates[1]
+    longitude, latitude = features[0]["geometry"]["coordinates"][:2]
 
     return latitude, longitude
-
-
-if __name__ == "__main__":
-    coords = get_coordinates("Ahmedabad")
-
-    if coords:
-        print("Latitude :", coords[0])
-        print("Longitude:", coords[1])
-    else:
-        print("City not found")

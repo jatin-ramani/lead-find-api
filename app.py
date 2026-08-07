@@ -1,5 +1,11 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Imported first: instantiating Settings validates the whole configuration, so
+# a misconfigured process dies here rather than on its first request.
+from config import settings
 
 from api.business import router as business_router
 from api.business import scrape_router
@@ -8,6 +14,13 @@ from api.scan_jobs import router as scan_jobs_router
 from api.scrape_jobs import router as scrape_jobs_router
 from api.dashboard import router as dashboard_router
 from api.system import router as system_router
+
+logging.basicConfig(
+    level=settings.LOG_LEVEL,
+    format=settings.LOG_FORMAT,
+)
+
+logger = logging.getLogger(__name__)
 
 DESCRIPTION = """
 Finds local businesses and works out which of them have no website — the ones
@@ -79,9 +92,14 @@ TAGS_METADATA = [
 ]
 
 app = FastAPI(
-    title="Lead Finder API",
+    title=settings.APP_NAME,
     description=DESCRIPTION,
-    version="1.0.0",
+    version=settings.APP_VERSION,
+    debug=settings.DEBUG,
+    # Interactive docs are withheld in production unless DEBUG is on: they
+    # advertise every route and payload shape to anyone who finds the host.
+    docs_url=settings.docs_url,
+    redoc_url=settings.redoc_url,
     contact={
         "name": "Lead Finder",
         "email": "prit.n@dvijinfotech.com",
@@ -97,14 +115,37 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def log_startup_configuration() -> None:
+    """
+    Record the effective configuration once, so a misbehaving deployment can
+    be diagnosed from its logs. Secrets are reported as present/absent only.
+    """
+
+    logger.info(
+        "%s %s starting | environment=%s debug=%s database=%s "
+        "geoapify_key=%s cors_origins=%s",
+        settings.APP_NAME,
+        settings.APP_VERSION,
+        settings.ENVIRONMENT.value,
+        settings.DEBUG,
+        "sqlite" if settings.is_sqlite else "postgresql",
+        "set" if settings.GEOAPIFY_API_KEY else "MISSING",
+        ",".join(settings.CORS_ORIGINS),
+    )
+
+    if not settings.GEOAPIFY_API_KEY:
+        logger.warning(
+            "GEOAPIFY_API_KEY is not set — scanning will fail. "
+            "This is refused outright when ENVIRONMENT=production."
+        )
 
 
 @app.get(

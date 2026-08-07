@@ -3,10 +3,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# The application's engine configuration is the single source of truth for the
-# connection URL; importing it means `alembic upgrade` can never target a
-# different database than the running app.
-from database.db import DATABASE_URL, IS_SQLITE, Base
+# The application's own settings are the single source of truth for the
+# connection URL, so `alembic upgrade` can never target a different database
+# than the running app.
+from config import settings
+from database.db import Base
 
 # Importing the models registers every table on Base.metadata. Without this
 # line autogenerate sees an empty schema and would happily emit a migration
@@ -18,7 +19,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+config.set_main_option(
+    "sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%")
+)
 
 target_metadata = Base.metadata
 
@@ -31,7 +34,7 @@ def _common_options() -> dict:
         "compare_server_default": True,
         # SQLite cannot ALTER a column. Batch mode rewrites the table instead,
         # so the same migration script runs on SQLite and PostgreSQL alike.
-        "render_as_batch": IS_SQLITE,
+        "render_as_batch": settings.is_sqlite,
     }
 
 

@@ -6,6 +6,7 @@ from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session
 
+from config import settings
 from database.models import Business, ScanJob, ScrapeJob, WebsiteData
 
 
@@ -13,8 +14,8 @@ from database.models import Business, ScanJob, ScrapeJob, WebsiteData
 # BUSINESS CRUD
 # ======================================================
 
-DEFAULT_PAGE_SIZE = 20
-MAX_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = settings.DEFAULT_PAGE_SIZE
+MAX_PAGE_SIZE = settings.MAX_PAGE_SIZE
 
 # Columns the free-text search runs across.
 SEARCHABLE_COLUMNS = (

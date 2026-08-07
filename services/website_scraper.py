@@ -5,17 +5,16 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from config import settings
+
 # ======================================================
 # CONFIG
 # ======================================================
 
-REQUEST_TIMEOUT = 20
+REQUEST_TIMEOUT = settings.SCRAPER_TIMEOUT_SECONDS
 
 # Some sites serve a stripped page or a 403 to non-browser agents.
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
+USER_AGENT = settings.SCRAPER_USER_AGENT
 
 DEFAULT_HEADERS = {
     "User-Agent": USER_AGENT,
@@ -25,7 +24,7 @@ DEFAULT_HEADERS = {
 
 # Stop reading a response that is far larger than any real marketing page,
 # so one bad URL cannot exhaust memory.
-MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_RESPONSE_BYTES = settings.SCRAPER_MAX_RESPONSE_BYTES
 
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
 
