@@ -1,0 +1,106 @@
+# =============================================================================
+# Local development stack: the API on PostgreSQL.
+#
+#     cp .env.example .env      # then set GEOAPIFY_API_KEY
+#     docker compose up --build
+#
+# Compose reads `.env` from this directory for the ${...} substitutions below,
+# so the same file that configures a bare-metal run configures this one.
+#
+# This file is for DEVELOPMENT. It publishes the database port, uses a weak
+# default password, and serves /docs. See README "Deploying" for production.
+# =============================================================================
+
+name: leadfinder
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-leadfinder}
+      # Development default. Production passes a real secret from a secret
+      # store and never a literal in a compose file.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leadfinder_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-leadfinder}
+      # Deterministic collation regardless of the host's locale — otherwise
+      # ORDER BY on text can differ between a developer's box and the server.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+    ports:
+      # Exposed only for psql and GUI clients. Remove for anything shared —
+      # the API reaches the database over the compose network, not this port.
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    healthcheck:
+      # -U and -d matter: bare pg_isready reports ready while the init scripts
+      # are still running, and the API would connect to a half-built database.
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leadfinder} -d ${POSTGRES_DB:-leadfinder}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        # Not just "started": without this the API races the database on every
+        # `compose up` and the entrypoint burns its wait budget.
+        condition: service_healthy
+
+    environment:
+      # --- database --------------------------------------------------------
+      # `db` is the compose service name, resolved on the compose network.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-leadfinder}:${POSTGRES_PASSWORD:-leadfinder_dev_only}@db:5432/${POSTGRES_DB:-leadfinder}
+
+      # --- secrets ---------------------------------------------------------
+      # No default and no literal: taken from the host environment or `.env`.
+      # `:?` makes compose refuse to start with a clear message rather than
+      # booting a stack whose every scan will fail.
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:?set GEOAPIFY_API_KEY in .env or the environment}
+
+      # --- application -----------------------------------------------------
+      # `development` so /docs is served and SQLite-free rules stay relaxed;
+      # the image defaults to production.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+
+      # --- logging ---------------------------------------------------------
+      # Human-readable by default here; the image defaults to JSON, which is
+      # what a log shipper wants and a developer does not.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      LOG_ACCESS_EXCLUDE_PATHS: ${LOG_ACCESS_EXCLUDE_PATHS:-/health}
+
+      # --- startup ---------------------------------------------------------
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+
+    ports:
+      - "${APP_PORT:-8000}:8000"
+
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  pgdata:
+    # Named, so `compose down` keeps the data and only `compose down -v`
+    # destroys it.
+    driver: local

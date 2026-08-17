@@ -3,9 +3,10 @@ import io
 from typing import Iterable, Iterator, List, Optional, Sequence
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from errors import AppError, ErrorCode
 from database.db import get_db
 from database.crud import (
     DEFAULT_PAGE_SIZE,
@@ -471,25 +472,25 @@ def scrape_business_website(
     }
 
 
-def _running_job_conflict(db: Session) -> Optional[JSONResponse]:
+def _raise_if_job_running(db: Session) -> None:
     """
-    409 payload when a scrape is already in flight, otherwise None.
+    Refuse a new scrape while one is in flight.
 
-    Shared by every bulk endpoint so they answer identically.
+    Raises rather than returning a response so the 409 goes through the shared
+    exception handler and carries the same envelope as every other error; the
+    running job id travels in `details`.
     """
 
     running = get_running_scrape_job(db)
 
     if running is None:
-        return None
+        return
 
-    return JSONResponse(
+    raise AppError(
+        "A scrape job is already running.",
         status_code=409,
-        content={
-            "success": False,
-            "message": "A scrape job is already running.",
-            "job_id": running.id,
-        },
+        error=ErrorCode.CONFLICT,
+        details={"job_id": running.id},
     )
 
 
@@ -513,10 +514,7 @@ def scrape_all_business_websites(
 ):
     """Queue a bulk scrape of every business website and return immediately."""
 
-    conflict = _running_job_conflict(db)
-
-    if conflict is not None:
-        return conflict
+    _raise_if_job_running(db)
 
     # Same query the scraper itself uses, so total_websites always agrees with
     # the number of rows the job actually processes.
@@ -556,10 +554,7 @@ def scrape_missing_business_websites(
 ):
     """Queue a scrape of businesses that have no website_data row yet."""
 
-    conflict = _running_job_conflict(db)
-
-    if conflict is not None:
-        return conflict
+    _raise_if_job_running(db)
 
     total_websites = count_scrape_targets(db, only_missing=True)
 
@@ -596,10 +591,7 @@ def scrape_failed_business_websites(
 ):
     """Queue a retry of businesses whose most recent scrape failed."""
 
-    conflict = _running_job_conflict(db)
-
-    if conflict is not None:
-        return conflict
+    _raise_if_job_running(db)
 
     total_websites = len(get_failed_scrape_targets(db))
 
@@ -640,10 +632,7 @@ def scrape_selected_business_websites(
 ):
     """Queue a scrape of the requested businesses only."""
 
-    conflict = _running_job_conflict(db)
-
-    if conflict is not None:
-        return conflict
+    _raise_if_job_running(db)
 
     # Resolving here rather than in the task means total_websites counts only
     # the ids that survived validation — unknown, duplicate and website-less

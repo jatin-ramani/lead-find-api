@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from config import settings
 
 # Re-exported for the modules and migrations that already import these names.
-DATABASE_URL = settings.DATABASE_URL
+DATABASE_URL = settings.database_url
 IS_SQLITE = settings.is_sqlite
 
 
@@ -31,7 +31,7 @@ def _engine_options() -> Dict[str, Any]:
 
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    settings.database_url,
     **_engine_options(),
 )
 

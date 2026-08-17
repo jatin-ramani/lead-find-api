@@ -27,7 +27,7 @@ Create Date: 2026-08-07
 from typing import Sequence, Set, Union
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 revision: str = "0001"
 down_revision: Union[str, None] = None
@@ -36,7 +36,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _existing_tables() -> Set[str]:
-    """Table names already present in the target database."""
+    """
+    Table names already present in the target database.
+
+    In offline mode (``alembic upgrade head --sql``) there is no connection to
+    inspect, so the answer is "none" and the full DDL is emitted. That is the
+    right answer for the offline use case: the output is a script for a fresh
+    database or for a reviewer, not something applied blind to a live one.
+    Without this the command dies on `sa.inspect(None)`.
+    """
+
+    if context.is_offline_mode():
+        return set()
 
     bind = op.get_bind()
 

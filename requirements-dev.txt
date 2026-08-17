@@ -1,0 +1,18 @@
+# Development and test dependencies.
+# Install alongside the runtime requirements:
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# Kept separate so test tooling is never shipped to production.
+
+-r requirements.txt
+
+pytest==9.1.1
+pytest-cov==7.1.0
+coverage==7.15.4
+
+# starlette's TestClient transport
+httpx2==2.9.1
+httpcore2==2.9.1
+
+# Parses docker-compose.yml for the deployment contract tests
+PyYAML==6.0.3

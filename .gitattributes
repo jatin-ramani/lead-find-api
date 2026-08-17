@@ -1,0 +1,17 @@
+# Shell scripts must keep LF endings even when checked out on Windows.
+#
+# Without this, git's autocrlf rewrites docker-entrypoint.sh to CRLF on
+# checkout, the trailing \r becomes part of the shebang, and the container
+# dies with:
+#
+#     exec /usr/local/bin/docker-entrypoint.sh: no such file or directory
+#
+# which names a file that is plainly there. This is the single most common
+# way a Docker build that works on Linux fails on a Windows developer's box.
+*.sh text eol=lf
+
+# Same reasoning: these are read inside Linux containers.
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
