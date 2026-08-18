@@ -53,8 +53,8 @@ class TestSystemEndpoints:
         ]
 
         assert schema["openapi"].startswith("3.")
-        assert len(schema["paths"]) == 19
-        assert len(operations) == 23
+        assert len(schema["paths"]) == 23
+        assert len(operations) == 27
 
     def test_every_operation_is_documented(self, client):
         """Swagger is the contract; an undocumented endpoint is a regression."""
@@ -338,7 +338,7 @@ class TestDashboardEndpoint:
         }
         assert set(body["business"]) == {
             "totalBusinesses", "withWebsite", "withoutWebsite",
-            "withEmail", "withoutEmail",
+            "withEmail", "withoutEmail", "withPhone", "actionableLeads",
         }
 
     def test_counts_are_internally_consistent(self, client, sample_businesses):

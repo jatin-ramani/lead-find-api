@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -104,10 +104,46 @@ class BulkBusinessRequest(BaseModel):
     business_ids: List[int]
 
     model_config = {
-        "json_schema_extra": {
-            "example": {"business_ids": [5, 11, 18, 42]}
-        }
+        "json_schema_extra": {"example": {"business_ids": [5, 11, 18, 42]}}
     }
+
+
+class ContactQualification(BaseModel):
+    """Additional positive contact requirements applied with AND semantics."""
+
+    has_email: bool = False
+    has_phone: bool = False
+
+
+class SelectedExportRequest(BulkBusinessRequest, ContactQualification):
+    """Selected ids plus explicit server-side contact qualification."""
+
+
+class BusinessFilterRequest(BaseModel):
+    """The same filter contract used by list and filtered CSV endpoints."""
+
+    search: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    has_website: Optional[bool] = None
+    has_email: Optional[bool] = None
+    has_phone: Optional[bool] = None
+
+
+class ExportPreviewRequest(BaseModel):
+    """Authoritative count request for filtered or selected export scope."""
+
+    scope: Literal["filtered", "selected"]
+    business_ids: List[int] = []
+    filters: BusinessFilterRequest = BusinessFilterRequest()
+    qualification: ContactQualification = ContactQualification()
+
+
+class ExportPreviewResponse(BaseModel):
+    success: bool = True
+    total_selected: int
+    matching_qualification: int
+    export_count: int
 
 
 class ScrapeSelectedRequest(BulkBusinessRequest):

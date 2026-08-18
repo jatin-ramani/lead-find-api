@@ -281,6 +281,9 @@ class TestEntrypoint:
 
     def test_the_shell_accepts_it(self):
         """Catches a syntax error that would otherwise appear only on deploy."""
+        import shutil
+        if shutil.which("sh") is None:
+            pytest.skip("sh executable not available on this platform")
 
         result = subprocess.run(
             ["sh", "-n", str(ENTRYPOINT)], capture_output=True, text=True
@@ -461,6 +464,7 @@ class TestPostgresSupportIsActuallyShipped:
         env = {
             **os.environ,
             "ENVIRONMENT": "production",
+            "ADMIN_SECRET_KEY": "production-secret-not-default",
             "DATABASE_URL": "postgresql+psycopg://leadfinder:pw@db:5432/leadfinder",
             "GEOAPIFY_API_KEY": "a-real-looking-key",
             "CORS_ORIGINS": "https://app.example.com",
@@ -488,7 +492,7 @@ class TestPostgresSupportIsActuallyShipped:
         dialect, driver, paths, docs = result.stdout.split()
 
         assert (dialect, driver) == ("postgresql", "psycopg")
-        assert int(paths) == 19, "the API surface differs under PostgreSQL"
+        assert int(paths) == 23, "the API surface differs under PostgreSQL"
         assert docs == "None", "docs must stay hidden in production"
 
 

@@ -50,7 +50,10 @@ def _guard_against_real_database():
     engine.dispose()
 
     if _TMP_DB.exists():
-        _TMP_DB.unlink(missing_ok=True)
+        try:
+            _TMP_DB.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -103,15 +106,19 @@ def db():
 
 
 @pytest.fixture
-def client():
-    """
-    HTTP client for the real application.
-
-    No dependency overrides: `get_db` already yields from the same engine the
-    fixtures use, so the API and the assertions see one database.
-    """
-
+def unauth_client():
+    """Unauthenticated HTTP client for testing 401 protection."""
     with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client():
+    """Pre-authenticated HTTP client for general route testing."""
+    from config import settings
+
+    headers = {"Authorization": f"Bearer {settings.admin_secret}"}
+    with TestClient(app, headers=headers) as test_client:
         yield test_client
 
 

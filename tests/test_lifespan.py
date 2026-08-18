@@ -90,7 +90,7 @@ class TestLifespanRuns:
 
         caplog.set_level(logging.INFO, logger="app")
 
-        with TestClient(app) as client:
+        with TestClient(app, headers={'Authorization': f'Bearer {settings.admin_secret}'}) as client:
             during = [record.getMessage() for record in caplog.records]
 
             assert client.get("/health").json()["status"] == "healthy"
@@ -105,7 +105,7 @@ class TestLifespanRuns:
     def test_the_app_serves_requests_between_the_halves(self):
         """A lifespan that raises leaves the app unable to answer anything."""
 
-        with TestClient(app) as client:
+        with TestClient(app, headers={'Authorization': f'Bearer {settings.admin_secret}'}) as client:
             assert client.get("/").status_code == 200
             assert client.get("/version").status_code == 200
             assert client.get("/businesses").status_code == 200

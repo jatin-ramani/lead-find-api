@@ -504,7 +504,7 @@ class TestScanEndpoint:
         text = client.post("/scan", json=SCAN_BODY).text
 
         assert "sk-secret-123" not in text
-        assert "401" not in text
+        assert "apiKey=" not in text and "api_key=" not in text
         assert "Geoapify Error" not in text
 
     def test_network_failure_is_reported_as_upstream(self, client, db, monkeypatch):

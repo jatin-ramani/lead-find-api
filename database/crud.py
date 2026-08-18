@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import and_, case, func, or_, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Query, Session
 
 from config import settings
@@ -52,12 +52,32 @@ RUNNING_STATUS = "Running"
 # rule the scrape target query uses, so the dashboard cannot disagree with it.
 HAS_WEBSITE = and_(
     Business.website.isnot(None),
-    func.trim(Business.website) != "",
+    func.trim(Business.website, " \t\r\n") != "",
+)
+
+NO_WEBSITE = or_(
+    Business.website.is_(None),
+    func.trim(Business.website, " \t\r\n") == "",
 )
 
 HAS_EMAIL = and_(
     Business.email.isnot(None),
-    func.trim(Business.email) != "",
+    func.trim(Business.email, " \t\r\n") != "",
+)
+
+NO_EMAIL = or_(
+    Business.email.is_(None),
+    func.trim(Business.email, " \t\r\n") == "",
+)
+
+HAS_PHONE = and_(
+    Business.phone.isnot(None),
+    func.trim(Business.phone, " \t\r\n") != "",
+)
+
+NO_PHONE = or_(
+    Business.phone.is_(None),
+    func.trim(Business.phone, " \t\r\n") == "",
 )
 
 
@@ -100,14 +120,22 @@ def _apply_business_filters(
     search: Optional[str] = None,
     city: Optional[str] = None,
     category: Optional[str] = None,
-    status: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
+    business_ids: Optional[Sequence[int]] = None,
 ) -> Query:
-    """Apply the optional search and filter clauses to a Business query."""
+    """Apply the optional search, contact and filter clauses to a Business query."""
 
     search = _clean(search)
     city = _clean(city)
     category = _clean(category)
-    status = _clean(status)
+
+    if business_ids is not None:
+        unique_ids = {int(b_id) for b_id in business_ids}
+        if not unique_ids:
+            return query.filter(text("1 = 0"))
+        query = query.filter(Business.id.in_(unique_ids))
 
     if search:
         pattern = f"%{_escape_like(search)}%"
@@ -127,8 +155,15 @@ def _apply_business_filters(
     if category:
         query = query.filter(Business.category == category)
 
-    if status:
-        query = query.filter(Business.status == status)
+    if has_website is True:
+        query = query.filter(HAS_WEBSITE)
+    elif has_website is False:
+        query = query.filter(NO_WEBSITE)
+
+    if has_email is True:
+        query = query.filter(HAS_EMAIL)
+    if has_phone is True:
+        query = query.filter(HAS_PHONE)
 
     return query
 
@@ -214,17 +249,20 @@ def get_businesses(
     search: Optional[str] = None,
     city: Optional[str] = None,
     category: Optional[str] = None,
-    status: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
     sort_by: Optional[str] = DEFAULT_SORT_BY,
     sort_order: Optional[str] = DEFAULT_SORT_ORDER,
+    business_ids: Optional[Sequence[int]] = None,
 ) -> Dict[str, Any]:
     """
     Return a page of businesses together with its pagination metadata.
 
-    `search` matches name, phone, email or website. `city`, `category` and
-    `status` are exact-match filters. `sort_by` accepts id, name, city,
-    category or status; `sort_order` accepts asc or desc. All are optional and
-    invalid values fall back to the defaults.
+    `search` matches name, phone, email or website. `city`, `category`,
+    `status` and `contact` are exact-match filters. `sort_by` accepts id, name,
+    city, category or status; `sort_order` accepts asc or desc. All are optional
+    and invalid values fall back to the defaults.
     """
 
     # Clamp the paging inputs so a bad query string cannot request a negative
@@ -237,7 +275,10 @@ def get_businesses(
         search=search,
         city=city,
         category=category,
-        status=status,
+        has_website=has_website,
+        has_email=has_email,
+        has_phone=has_phone,
+        business_ids=business_ids,
     )
 
     total_items = query.count()
@@ -283,7 +324,7 @@ def _scrape_target_query(db: Session, only_missing: bool = False) -> Query:
         db.query(Business)
         .filter(
             Business.website.isnot(None),
-            func.trim(Business.website) != "",
+            func.trim(Business.website, " \t\r\n") != "",
         )
     )
 
@@ -305,12 +346,14 @@ def count_scrape_targets(db: Session, only_missing: bool = False) -> int:
 def get_businesses_by_ids(
     db: Session,
     business_ids: Sequence[int],
+    has_email: bool = False,
+    has_phone: bool = False,
 ) -> List[Business]:
     """
     Fetch the requested businesses, ordered by id.
 
-    Duplicates collapse via the set and unknown ids simply match nothing, so
-    raw user input can be passed straight through.
+    Duplicates collapse via the set, unknown ids simply match nothing, and
+    an optional contact requirement filters down to valid contacts.
     """
 
     unique_ids = {int(business_id) for business_id in business_ids}
@@ -318,12 +361,36 @@ def get_businesses_by_ids(
     if not unique_ids:
         return []
 
+    query = _apply_business_filters(
+        db.query(Business).filter(Business.id.in_(unique_ids)),
+        has_email=True if has_email else None,
+        has_phone=True if has_phone else None,
+    )
+
     return (
-        db.query(Business)
-        .filter(Business.id.in_(unique_ids))
+        query
         .order_by(Business.id.asc())
         .all()
     )
+
+
+def count_businesses(
+    db: Session,
+    *,
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
+    business_ids: Optional[Sequence[int]] = None,
+) -> int:
+    """Count rows through the canonical business filter path."""
+    return _apply_business_filters(
+        db.query(Business), search=search, city=city, category=category,
+        has_website=has_website, has_email=has_email, has_phone=has_phone,
+        business_ids=business_ids,
+    ).count()
 
 
 def _rows_to_targets(rows: Sequence[Business]) -> List[Tuple[int, str]]:
@@ -558,7 +625,32 @@ def delete_scan_job(db: Session, job_id: int):
 # SCRAPE JOB CRUD
 # ======================================================
 
-def create_scrape_job(db: Session, total_websites: int):
+class ScrapeJobConflictError(Exception):
+    """Raised when creating a scrape job fails due to an existing Pending or Running job."""
+
+    def __init__(self, active_job_id: Optional[int] = None):
+        self.active_job_id = active_job_id
+        super().__init__("A scrape job is already running.")
+
+
+def get_active_scrape_job(db: Session) -> Optional[ScrapeJob]:
+    """The scrape job currently Pending or Running, or None if the queue is idle."""
+
+    return (
+        db.query(ScrapeJob)
+        .filter(ScrapeJob.status.in_([PENDING_STATUS, RUNNING_STATUS]))
+        .order_by(ScrapeJob.id.desc())
+        .first()
+    )
+
+
+def create_scrape_job(db: Session, total_websites: int) -> int:
+    """
+    Create a new scrape job in Pending status.
+    Protected at the database level by partial unique index uq_scrape_jobs_single_active.
+    If an active job already exists, catches the integrity error, rolls back cleanly,
+    and raises ScrapeJobConflictError.
+    """
 
     job = ScrapeJob(
         status=PENDING_STATUS,
@@ -571,10 +663,22 @@ def create_scrape_job(db: Session, total_websites: int):
     )
 
     db.add(job)
-    db.commit()
-    db.refresh(job)
-
-    return job.id
+    try:
+        db.commit()
+        db.refresh(job)
+        return job.id
+    except IntegrityError as exc:
+        db.rollback()
+        err_msg = str(exc).lower()
+        if (
+            "uq_scrape_jobs_single_active" in err_msg
+            or ("unique constraint failed" in err_msg and "scrape_jobs" in err_msg)
+            or ("duplicate key" in err_msg and "scrape_jobs" in err_msg)
+            or "unique constraint" in err_msg
+        ):
+            active = get_active_scrape_job(db)
+            raise ScrapeJobConflictError(active.id if active else None) from exc
+        raise
 
 
 def update_scrape_job(
@@ -632,12 +736,7 @@ def update_scrape_job(
 def get_running_scrape_job(db: Session):
     """The scrape job currently in flight, or None if the queue is idle."""
 
-    return (
-        db.query(ScrapeJob)
-        .filter(ScrapeJob.status == RUNNING_STATUS)
-        .order_by(ScrapeJob.id.desc())
-        .first()
-    )
+    return get_active_scrape_job(db)
 
 
 def clear_scrape_job_current_business(db: Session, job_id: int):
@@ -754,17 +853,19 @@ def get_dashboard_stats(db: Session) -> Dict[str, Any]:
     """
 
     # --- Business -------------------------------------------------------
-    business_total, business_with_website, business_with_email = (
-        db.query(
-            func.count(Business.id),
-            _count_if(HAS_WEBSITE),
-            _count_if(HAS_EMAIL),
-        ).one()
-    )
+    (business_total, business_with_website, business_with_email,
+     business_with_phone, actionable_leads) = db.query(
+        func.count(Business.id),
+        _count_if(HAS_WEBSITE),
+        _count_if(HAS_EMAIL),
+        _count_if(HAS_PHONE),
+        _count_if(and_(NO_WEBSITE, or_(HAS_EMAIL, HAS_PHONE))),
+    ).one()
 
     business_total = _as_int(business_total)
     with_website = _as_int(business_with_website)
     with_email = _as_int(business_with_email)
+    with_phone = _as_int(business_with_phone)
 
     # --- Website data ---------------------------------------------------
     # Scored on the most recent row per business, matching how
@@ -811,6 +912,8 @@ def get_dashboard_stats(db: Session) -> Dict[str, Any]:
             "withoutWebsite": business_total - with_website,
             "withEmail": with_email,
             "withoutEmail": business_total - with_email,
+            "withPhone": with_phone,
+            "actionableLeads": _as_int(actionable_leads),
         },
         "websiteData": {
             "completed": _as_int(scraped_completed),

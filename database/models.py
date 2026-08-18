@@ -4,9 +4,11 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import backref, relationship
 
@@ -23,8 +25,8 @@ class Business(Base):
     email = Column(String)
     website = Column(String)
 
-    city = Column(String)
-    category = Column(String)
+    city = Column(String, index=True)
+    category = Column(String, index=True)
 
     address = Column(String)
 
@@ -131,10 +133,21 @@ class ScrapeJob(Base):
     # deleted mid-run.
     current_business_id = Column(
     Integer,
-    ForeignKey("businesses.id"),
+    ForeignKey("businesses.id", ondelete="SET NULL"),
     nullable=True,
 )
     # No defaults — a job is created "Pending", so it has not started yet and
     # both timestamps are set by the service as the run progresses.
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_scrape_jobs_single_active",
+            text("(1)"),
+            unique=True,
+            postgresql_where=text("status IN ('Pending', 'Running')"),
+            sqlite_where=text("status IN ('Pending', 'Running')"),
+        ),
+    )
+

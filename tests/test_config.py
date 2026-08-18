@@ -160,6 +160,7 @@ class TestProductionRules:
             "GEOAPIFY_API_KEY": "key",
             "DATABASE_URL": "postgresql://u:p@h/d",
             "CORS_ORIGINS": "https://app.test",
+            "ADMIN_SECRET_KEY": "production-secret-not-default",
         }
         base.update(overrides)
 
@@ -170,6 +171,14 @@ class TestProductionRules:
 
         assert settings.is_production is True
         assert settings.is_sqlite is False
+
+    def test_default_admin_secret_rejected(self, clean_env):
+        with pytest.raises(ValidationError) as exc:
+            self._production(
+                clean_env,
+                ADMIN_SECRET_KEY="leadfinder_admin_secret_2026_change_in_production",
+            )
+        assert "ADMIN_SECRET_KEY must be changed" in str(exc.value)
 
     def test_missing_api_key_rejected(self, clean_env):
         with pytest.raises(ValidationError) as exc:
@@ -285,6 +294,7 @@ class TestConfigurationWarnings:
         settings = build(
             clean_env,
             ENVIRONMENT="production",
+            ADMIN_SECRET_KEY="production-secret-not-default",
             DEBUG="true",
             GEOAPIFY_API_KEY="real-key",
             DATABASE_URL="postgresql://u:p@h/d",
@@ -377,6 +387,7 @@ class TestStartupValidation:
         result = self._run(
             "import app",
             ENVIRONMENT="production",
+            ADMIN_SECRET_KEY="production-secret-not-default",
             GEOAPIFY_API_KEY="",
             DATABASE_URL="postgresql://u:p@h/d",
             CORS_ORIGINS="https://app.test",
@@ -423,7 +434,7 @@ class TestSecretMasking:
 
         assert SECRET_KEY not in text
         assert "hunter2" not in text
-        assert text.count("SecretStr('**********')") == 2
+        assert text.count("SecretStr('**********')") == 3
 
     def test_str_masks_both_secrets(self, settings):
         assert SECRET_KEY not in str(settings)
@@ -446,7 +457,7 @@ class TestSecretMasking:
 
         assert SECRET_KEY not in payload
         assert "hunter2" not in payload
-        assert payload.count('"**********"') == 2
+        assert payload.count('"**********"') == 3
 
     def test_the_accessors_still_return_the_real_values(self, settings):
         """Masking is worthless if it also breaks the thing being configured."""

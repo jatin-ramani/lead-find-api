@@ -19,6 +19,7 @@ missing value.
 
 import os
 import sys
+import secrets
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, List, Literal, Optional
@@ -38,6 +39,8 @@ DEFAULT_SQLITE_PATH = BACKEND_DIR / "database" / "leadfinder.db"
 
 # Values shipped in .env.example. Deploying with one of these means the file
 # was copied and never filled in — a mistake worth refusing to boot on.
+DEFAULT_ADMIN_SECRET = "leadfinder_admin_secret_2026_change_in_production"
+
 PLACEHOLDER_SECRETS = frozenset(
     {
         "your-geoapify-api-key-here",
@@ -143,6 +146,10 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Required in production; see the validator at the bottom of this class.
     # Read it through `settings.geoapify_api_key`.
+    ADMIN_SECRET_KEY: SecretStr = Field(
+        default=SecretStr(DEFAULT_ADMIN_SECRET),
+        description="Secret key required for administrative API access.",
+    )
     GEOAPIFY_API_KEY: Optional[SecretStr] = None
     GEOAPIFY_PLACES_URL: str = "https://api.geoapify.com/v2/places"
     GEOAPIFY_GEOCODE_URL: str = "https://api.geoapify.com/v1/geocode/search"
@@ -236,6 +243,10 @@ class Settings(BaseSettings):
             return ""
 
         return self.GEOAPIFY_API_KEY.get_secret_value()
+
+    @property
+    def admin_secret(self) -> str:
+        return self.ADMIN_SECRET_KEY.get_secret_value()
 
     @property
     def has_geoapify_key(self) -> bool:
@@ -364,6 +375,11 @@ class Settings(BaseSettings):
             )
 
         if self.is_production:
+            if secrets.compare_digest(self.admin_secret, DEFAULT_ADMIN_SECRET):
+                raise ValueError(
+                    "ADMIN_SECRET_KEY must be changed from its default in production"
+                )
+
             # Scanning is the product; booting production without a key would
             # only surface at the first scan, long after deploy.
             if not self.has_geoapify_key:

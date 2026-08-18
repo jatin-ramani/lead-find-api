@@ -135,9 +135,9 @@ class TestFilters:
         assert {b.category for b in result["data"]} == {"retail"}
 
     def test_status(self, db, sample_businesses):
-        result = crud.get_businesses(db, status="No Website")
+        result = crud.get_businesses(db, has_website=False)
 
-        assert {b.status for b in result["data"]} == {"No Website"}
+        assert all(not (b.website or "").strip() for b in result["data"])
 
     def test_filters_combine_as_and(self, db, sample_businesses):
         result = crud.get_businesses(db, city="Surat", category="retail")

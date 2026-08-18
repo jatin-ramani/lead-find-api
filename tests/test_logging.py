@@ -132,7 +132,8 @@ def capture(monkeypatch):
 
 @pytest.fixture
 def logged_client(capture):
-    with TestClient(app, raise_server_exceptions=False) as client:
+    headers = {"Authorization": f"Bearer {settings.admin_secret}"}
+    with TestClient(app, headers=headers, raise_server_exceptions=False) as client:
         yield client, capture
 
 
@@ -414,7 +415,7 @@ class TestJsonOutput:
         return capture
 
     def test_every_line_is_valid_json(self, json_capture):
-        with TestClient(app) as client:
+        with TestClient(app, headers={'Authorization': f'Bearer {settings.admin_secret}'}) as client:
             client.get("/_log/ok")
 
         lines = [l for l in json_capture.text.splitlines() if l.strip()]
@@ -425,7 +426,7 @@ class TestJsonOutput:
             json.loads(line)
 
     def test_the_access_object_carries_every_field(self, json_capture):
-        with TestClient(app) as client:
+        with TestClient(app, headers={'Authorization': f'Bearer {settings.admin_secret}'}) as client:
             client.get("/_log/ok")
 
         payloads = [json.loads(l) for l in json_capture.text.splitlines() if l]

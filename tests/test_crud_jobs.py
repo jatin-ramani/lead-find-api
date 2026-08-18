@@ -121,7 +121,11 @@ class TestScrapeJobCrud:
         assert crud.get_scrape_job(db, job_id).completed_at is not None
 
     def test_list_newest_first_and_delete(self, db):
-        ids = [crud.create_scrape_job(db, total_websites=i) for i in range(3)]
+        ids = []
+        for i in range(3):
+            job_id = crud.create_scrape_job(db, total_websites=i)
+            crud.update_scrape_job(db, job_id, status=crud.COMPLETED_STATUS)
+            ids.append(job_id)
 
         assert [j.id for j in crud.get_scrape_jobs(db)] == sorted(ids, reverse=True)
         assert crud.delete_scrape_job(db, ids[0]) is True
@@ -293,8 +297,8 @@ class TestDashboardStats:
         )
 
     def test_job_counts_by_status(self, db):
-        for status in (crud.RUNNING_STATUS, crud.COMPLETED_STATUS,
-                       crud.COMPLETED_STATUS, crud.FAILED_STATUS):
+        for status in (crud.COMPLETED_STATUS, crud.COMPLETED_STATUS,
+                       crud.FAILED_STATUS, crud.RUNNING_STATUS):
             job_id = crud.create_scrape_job(db, total_websites=1)
             crud.update_scrape_job(db, job_id, status=status)
 
@@ -328,3 +332,17 @@ class TestDatabaseHealth:
         finally:
             session.close()
             bad.dispose()
+
+
+def test_deleting_current_business_sets_scrape_pointer_null(db, business_factory):
+    business = business_factory(name="Current scrape target", place_id="fk-set-null")
+    job = ScrapeJob(status="Running", current_business_id=business.id)
+    db.add(job)
+    db.commit()
+    job_id = job.id
+
+    assert crud.delete_business(db, business.id) is True
+    db.expire_all()
+    surviving = db.get(ScrapeJob, job_id)
+    assert surviving is not None
+    assert surviving.current_business_id is None

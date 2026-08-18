@@ -89,7 +89,7 @@ class TestSuccessfulScrape:
 
         assert "Mozilla" in call["headers"]["User-Agent"]
         assert call["timeout"] == website_scraper.REQUEST_TIMEOUT
-        assert call["allow_redirects"] is True
+        assert call["allow_redirects"] is False
 
     def test_missing_socials_are_none_and_emails_a_list(self, fake_get):
         fake_get(html_response("<html><head><title>Bare</title></head><body/></html>"))

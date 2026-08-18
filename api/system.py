@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database.db import engine, get_db
 from database.crud import check_database_connection
+from database.auth import verify_admin
 
 router = APIRouter(
     tags=["System"],
@@ -106,6 +107,7 @@ def version(request: Request):
 
 @router.get(
     "/system",
+    dependencies=[Depends(verify_admin)],
     summary="Runtime environment",
     description=(
         "Interpreter, host and database facts about the running service.\n\n"

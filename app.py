@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Imported first: instantiating Settings validates the whole configuration, so
@@ -23,6 +23,8 @@ from api.scan_jobs import router as scan_jobs_router
 from api.scrape_jobs import router as scrape_jobs_router
 from api.dashboard import router as dashboard_router
 from api.system import router as system_router
+from api.auth import router as auth_router
+from database.auth import verify_admin
 
 # Installs the formatter (human or JSON, per LOG_JSON), the filter that
 # supplies %(request_id)s and the request context, and the secret redaction
@@ -235,10 +237,13 @@ def home():
 # Every failure from here on answers with the shared error envelope.
 register_exception_handlers(app)
 
-app.include_router(business_router)
-app.include_router(scrape_router)
-app.include_router(scanner_router)
-app.include_router(scan_jobs_router)
-app.include_router(scrape_jobs_router)
-app.include_router(dashboard_router)
+app.include_router(auth_router)
 app.include_router(system_router)
+
+# Protected routers requiring administrative authentication
+app.include_router(business_router, dependencies=[Depends(verify_admin)])
+app.include_router(scrape_router, dependencies=[Depends(verify_admin)])
+app.include_router(scanner_router, dependencies=[Depends(verify_admin)])
+app.include_router(scan_jobs_router, dependencies=[Depends(verify_admin)])
+app.include_router(scrape_jobs_router, dependencies=[Depends(verify_admin)])
+app.include_router(dashboard_router, dependencies=[Depends(verify_admin)])

@@ -49,6 +49,7 @@ def get_request_id() -> str:
 class ErrorCode:
     """Stable, machine-readable identifiers. Clients switch on these."""
 
+    UNAUTHORIZED = "UNAUTHORIZED"
     HTTP_ERROR = "HTTP_ERROR"
     NOT_FOUND = "NOT_FOUND"
     VALIDATION_ERROR = "VALIDATION_ERROR"
@@ -59,6 +60,7 @@ class ErrorCode:
 
 
 _STATUS_TO_CODE = {
+    401: ErrorCode.UNAUTHORIZED,
     404: ErrorCode.NOT_FOUND,
     409: ErrorCode.CONFLICT,
     422: ErrorCode.VALIDATION_ERROR,

@@ -17,10 +17,12 @@ from database.crud import (
     MAX_PAGE_SIZE,
     SORTABLE_COLUMNS,
     SORT_ORDERS,
+    ScrapeJobConflictError,
     count_scrape_targets,
     create_scrape_job,
     get_businesses,
     get_businesses_by_ids,
+    count_businesses,
     get_business_by_id,
     delete_business,
     delete_businesses,
@@ -36,6 +38,9 @@ from schemas.business import (
     BulkBusinessRequest,
     BusinessResponse,
     BusinessListResponse,
+    ExportPreviewRequest,
+    ExportPreviewResponse,
+    SelectedExportRequest,
     ScrapeSelectedRequest,
     WebsiteDataDetailResponse,
 )
@@ -79,10 +84,19 @@ BUSINESS_NOT_FOUND = error_response(
 
 FILTER_DOCS = (
     "Optional filters: `search` matches name, phone, e-mail or website; "
-    "`city`, `category` and `status` are exact matches. `sortBy` accepts "
-    "id, name, city, category or status and `sortOrder` asc or desc — an "
-    "unrecognised value falls back to the default rather than erroring."
+    "`city` and `category` are exact matches. `has_website`, `has_email`, "
+    "and `has_phone` are strict booleans combined with AND semantics."
 )
+
+DANGEROUS_CSV_PREFIXES = ("=", "+", "-", "@")
+
+
+def _csv_safe(value):
+    """Force formula-looking text cells to remain text in spreadsheets."""
+    if isinstance(value, str) and value.startswith(DANGEROUS_CSV_PREFIXES):
+        return "'" + value
+    return value
+
 
 CSV_COLUMNS = (
     "ID",
@@ -132,10 +146,9 @@ def list_businesses(
         None,
         description="Exact category match.",
     ),
-    status: Optional[str] = Query(
-        None,
-        description="Exact status match, e.g. 'No Website'.",
-    ),
+    has_website: Optional[bool] = Query(None, description="Website availability."),
+    has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
+    has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -161,7 +174,9 @@ def list_businesses(
         search=search,
         city=city,
         category=category,
-        status=status,
+        has_website=has_website,
+        has_email=has_email,
+        has_phone=has_phone,
         sort_by=sortBy,
         sort_order=sortOrder,
     )
@@ -194,14 +209,14 @@ def _csv_stream(batches: Iterable[Sequence[Business]]) -> Iterator[str]:
             writer.writerow(
                 [
                     business.id,
-                    business.name,
-                    business.phone,
-                    business.email,
-                    business.website,
-                    business.city,
-                    business.category,
-                    business.address,
-                    business.status,
+                    _csv_safe(business.name),
+                    _csv_safe(business.phone),
+                    _csv_safe(business.email),
+                    _csv_safe(business.website),
+                    _csv_safe(business.city),
+                    _csv_safe(business.category),
+                    _csv_safe(business.address),
+                    _csv_safe(business.status),
                 ]
             )
 
@@ -213,7 +228,9 @@ def _filtered_business_batches(
     search: Optional[str],
     city: Optional[str],
     category: Optional[str],
-    status: Optional[str],
+    has_website: Optional[bool],
+    has_email: Optional[bool],
+    has_phone: Optional[bool],
     sort_by: Optional[str],
     sort_order: Optional[str],
 ) -> Iterator[List[Business]]:
@@ -236,7 +253,9 @@ def _filtered_business_batches(
             search=search,
             city=city,
             category=category,
-            status=status,
+            has_website=has_website,
+            has_email=has_email,
+            has_phone=has_phone,
             sort_by=sort_by,
             sort_order=sort_order,
         )
@@ -254,6 +273,8 @@ def _filtered_business_batches(
 def _selected_business_batches(
     db: Session,
     business_ids: Sequence[int],
+    has_email: bool = False,
+    has_phone: bool = False,
 ) -> Iterator[List[Business]]:
     """
     Fetch the requested businesses in chunks, mirroring the paged export so a
@@ -266,6 +287,8 @@ def _selected_business_batches(
         yield get_businesses_by_ids(
             db,
             unique_ids[start:start + MAX_PAGE_SIZE],
+            has_email=has_email,
+            has_phone=has_phone,
         )
 
 
@@ -279,6 +302,31 @@ def _csv_response(batches: Iterable[Sequence[Business]]) -> StreamingResponse:
             "Content-Disposition": f'attachment; filename="{CSV_FILENAME}"',
         },
     )
+
+
+@router.post(
+    "/export/preview",
+    response_model=ExportPreviewResponse,
+    summary="Preview an export count",
+    description="Counts the rows eligible for a filtered or selected export using server-side predicates.",
+    response_description="Authoritative base and qualified export counts.",
+    responses={422: VALIDATION_ERROR_RESPONSE},
+)
+def preview_business_export(payload: ExportPreviewRequest, db: Session = Depends(get_db)):
+    filters = payload.filters.model_dump()
+    ids = payload.business_ids if payload.scope == "selected" else None
+    if payload.scope == "selected" and not ids:
+        return {"success": True, "total_selected": 0,
+                "matching_qualification": 0, "export_count": 0}
+    base = count_businesses(db, business_ids=ids, **({} if ids is not None else filters))
+    qualified = dict(filters) if ids is None else {}
+    if payload.qualification.has_email:
+        qualified["has_email"] = True
+    if payload.qualification.has_phone:
+        qualified["has_phone"] = True
+    export_count = count_businesses(db, business_ids=ids, **qualified)
+    return {"success": True, "total_selected": base,
+            "matching_qualification": export_count, "export_count": export_count}
 
 
 @router.get(
@@ -313,10 +361,9 @@ def export_businesses_csv(
         None,
         description="Exact category match.",
     ),
-    status: Optional[str] = Query(
-        None,
-        description="Exact status match, e.g. 'No Website'.",
-    ),
+    has_website: Optional[bool] = Query(None, description="Website availability."),
+    has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
+    has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -343,7 +390,9 @@ def export_businesses_csv(
             search=search,
             city=city,
             category=category,
-            status=status,
+            has_website=has_website,
+            has_email=has_email,
+            has_phone=has_phone,
             sort_by=sortBy,
             sort_order=sortOrder,
         )
@@ -359,7 +408,8 @@ def export_businesses_csv(
         "the GET route produces - same generator, same column order, "
         "same BOM.\n\n"
         "Duplicate ids collapse and unknown ids are skipped, so a "
-        "partly-stale selection still exports whatever remains valid."
+        "partly-stale selection still exports whatever remains valid. "
+        "An optional contact requirement enforces export restriction."
     ),
     response_description="A streamed businesses.csv attachment.",
     responses={
@@ -368,7 +418,7 @@ def export_businesses_csv(
     },
 )
 def export_selected_businesses_csv(
-    payload: BulkBusinessRequest,
+    payload: SelectedExportRequest,
     db: Session = Depends(get_db),
 ):
     """
@@ -379,7 +429,12 @@ def export_selected_businesses_csv(
     """
 
     return _csv_response(
-        _selected_business_batches(db, payload.business_ids)
+        _selected_business_batches(
+            db,
+            payload.business_ids,
+            has_email=payload.has_email,
+            has_phone=payload.has_phone,
+        )
     )
 
 
@@ -520,10 +575,18 @@ def scrape_all_business_websites(
     # the number of rows the job actually processes.
     total_websites = count_scrape_targets(db)
 
-    job_id = create_scrape_job(
-        db=db,
-        total_websites=total_websites,
-    )
+    try:
+        job_id = create_scrape_job(
+            db=db,
+            total_websites=total_websites,
+        )
+    except ScrapeJobConflictError as exc:
+        raise AppError(
+            "A scrape job is already running.",
+            status_code=409,
+            error=ErrorCode.CONFLICT,
+            details={"job_id": exc.active_job_id},
+        )
 
     # Runs after the response is sent, so the caller is never held open for
     # the length of the scrape.
@@ -558,10 +621,18 @@ def scrape_missing_business_websites(
 
     total_websites = count_scrape_targets(db, only_missing=True)
 
-    job_id = create_scrape_job(
-        db=db,
-        total_websites=total_websites,
-    )
+    try:
+        job_id = create_scrape_job(
+            db=db,
+            total_websites=total_websites,
+        )
+    except ScrapeJobConflictError as exc:
+        raise AppError(
+            "A scrape job is already running.",
+            status_code=409,
+            error=ErrorCode.CONFLICT,
+            details={"job_id": exc.active_job_id},
+        )
 
     background_tasks.add_task(scrape_missing_websites, job_id)
 
@@ -595,10 +666,18 @@ def scrape_failed_business_websites(
 
     total_websites = len(get_failed_scrape_targets(db))
 
-    job_id = create_scrape_job(
-        db=db,
-        total_websites=total_websites,
-    )
+    try:
+        job_id = create_scrape_job(
+            db=db,
+            total_websites=total_websites,
+        )
+    except ScrapeJobConflictError as exc:
+        raise AppError(
+            "A scrape job is already running.",
+            status_code=409,
+            error=ErrorCode.CONFLICT,
+            details={"job_id": exc.active_job_id},
+        )
 
     background_tasks.add_task(scrape_failed_websites, job_id)
 
@@ -639,10 +718,18 @@ def scrape_selected_business_websites(
     # entries are already gone.
     targets = get_selected_scrape_targets(db, payload.business_ids)
 
-    job_id = create_scrape_job(
-        db=db,
-        total_websites=len(targets),
-    )
+    try:
+        job_id = create_scrape_job(
+            db=db,
+            total_websites=len(targets),
+        )
+    except ScrapeJobConflictError as exc:
+        raise AppError(
+            "A scrape job is already running.",
+            status_code=409,
+            error=ErrorCode.CONFLICT,
+            details={"job_id": exc.active_job_id},
+        )
 
     background_tasks.add_task(
         scrape_selected_websites,

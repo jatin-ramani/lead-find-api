@@ -1,3 +1,4 @@
+from config import settings
 """
 Centralised error handling: one envelope, a request id on everything, and no
 internal detail crossing the boundary.
@@ -84,8 +85,8 @@ def quiet_client():
     With the default `raise_server_exceptions=True` the exception propagates
     into the test, so the handler's response is never observed.
     """
-
-    with TestClient(app, raise_server_exceptions=False) as test_client:
+    headers = {"Authorization": f"Bearer {settings.admin_secret}"}
+    with TestClient(app, headers=headers, raise_server_exceptions=False) as test_client:
         yield test_client
 
 
