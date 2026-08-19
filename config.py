@@ -150,6 +150,7 @@ class Settings(BaseSettings):
         default=SecretStr(DEFAULT_ADMIN_SECRET),
         description="Secret key required for administrative API access.",
     )
+    SESSION_TTL_SECONDS: int = Field(default=604800, gt=0)
     GEOAPIFY_API_KEY: Optional[SecretStr] = None
     GEOAPIFY_PLACES_URL: str = "https://api.geoapify.com/v2/places"
     GEOAPIFY_GEOCODE_URL: str = "https://api.geoapify.com/v1/geocode/search"

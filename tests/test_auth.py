@@ -1,6 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
+from datetime import timedelta
+
 from config import settings
+from database.auth import hash_session_token, utcnow
+from database.models import AdminSession
 from errors import ErrorCode
 
 
@@ -94,14 +98,22 @@ def test_login_with_empty_credentials(unauth_client: TestClient):
     assert data["error"] == ErrorCode.UNAUTHORIZED
 
 
-def test_login_with_valid_credentials_sets_cookie(unauth_client: TestClient):
-    """POST /auth/login with valid secret succeeds and sets session cookie."""
+def test_login_with_valid_credentials_sets_opaque_persisted_cookie(unauth_client: TestClient, db):
+    """Browser receives a random token while the database stores only its hash."""
     response = unauth_client.post("/auth/login", json={"secret": settings.admin_secret})
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
-    assert "leadfinder_session" in response.cookies
-    assert response.cookies["leadfinder_session"] == settings.admin_secret
+    assert response.json()["success"] is True
+    token = response.cookies["leadfinder_session"]
+    assert token and token != settings.admin_secret
+    assert settings.admin_secret not in response.headers["set-cookie"]
+    set_cookie = response.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert f"max-age={settings.SESSION_TTL_SECONDS}" in set_cookie
+    session = db.get(AdminSession, hash_session_token(token))
+    assert session is not None
+    assert session.created_at < session.expires_at
+    assert db.query(AdminSession).filter(AdminSession.token_hash == token).first() is None
 
 
 def test_authenticated_request_with_bearer_token(unauth_client: TestClient):
@@ -114,13 +126,30 @@ def test_authenticated_request_with_bearer_token(unauth_client: TestClient):
 
 
 def test_authenticated_request_with_session_cookie(unauth_client: TestClient):
-    """leadfinder_session cookie allows access to protected endpoints."""
-    unauth_client.cookies.set("leadfinder_session", settings.admin_secret)
+    login = unauth_client.post("/auth/login", json={"secret": settings.admin_secret})
+    assert login.status_code == 200
     response = unauth_client.get("/system")
     assert response.status_code == 200
-    data = response.json()
-    assert "pythonVersion" in data
-    assert "database" in data
+    assert "pythonVersion" in response.json()
+
+
+def test_admin_secret_is_rejected_as_a_browser_cookie(unauth_client: TestClient):
+    unauth_client.cookies.set("leadfinder_session", settings.admin_secret)
+    assert unauth_client.get("/system").status_code == 401
+
+
+def test_expired_session_is_rejected_and_removed(unauth_client: TestClient, db):
+    token = "expired-opaque-session"
+    db.add(AdminSession(
+        token_hash=hash_session_token(token),
+        created_at=utcnow() - timedelta(days=2),
+        expires_at=utcnow() - timedelta(days=1),
+    ))
+    db.commit()
+    unauth_client.cookies.set("leadfinder_session", token)
+    assert unauth_client.get("/system").status_code == 401
+    db.expire_all()
+    assert db.get(AdminSession, hash_session_token(token)) is None
 
 
 def test_auth_me_endpoint(unauth_client: TestClient):
@@ -136,13 +165,15 @@ def test_auth_me_endpoint(unauth_client: TestClient):
     assert resp_auth.json() == {"authenticated": True}
 
 
-def test_logout_clears_cookie(unauth_client: TestClient):
-    """POST /auth/logout clears the session cookie."""
-    unauth_client.cookies.set("leadfinder_session", settings.admin_secret)
+def test_logout_clears_and_invalidates_session(unauth_client: TestClient):
+    """A copied token cannot be reused after logout."""
+    login = unauth_client.post("/auth/login", json={"secret": settings.admin_secret})
+    token = login.cookies["leadfinder_session"]
     resp = unauth_client.post("/auth/logout")
     assert resp.status_code == 200
-    # Cookie value set to empty or deleted
     assert resp.cookies.get("leadfinder_session") == "" or "leadfinder_session" not in resp.cookies
+    unauth_client.cookies.set("leadfinder_session", token)
+    assert unauth_client.get("/auth/me").status_code == 401
 
 
 def test_secret_redaction_in_error_responses(unauth_client: TestClient):

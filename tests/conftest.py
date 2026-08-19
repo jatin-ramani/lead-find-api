@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import app  # noqa: E402
 from database.db import Base, SessionLocal, engine  # noqa: E402
 from database.models import (  # noqa: E402
+    AdminSession,
     Business,
     ScanJob,
     ScrapeJob,
@@ -84,7 +85,7 @@ def clean_tables(_schema):
 
     try:
         # Children first: website_data references businesses.
-        for model in (WebsiteData, ScrapeJob, ScanJob, Business):
+        for model in (AdminSession, WebsiteData, ScrapeJob, ScanJob, Business):
             session.query(model).delete()
 
         session.commit()

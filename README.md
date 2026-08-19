@@ -253,6 +253,16 @@ error responses would be worse.
 
 ---
 
+## Authentication
+
+`POST /auth/login` compares the submitted administrator secret in constant time,
+then issues a random 256-bit opaque session token. The raw token exists only in
+an HttpOnly, SameSite=Lax cookie (`Secure` in production); the shared database
+stores its SHA-256 hash, creation time, and expiry. `SESSION_TTL_SECONDS`
+controls the lifetime and defaults to seven days. Logout deletes the database
+row, so a copied token cannot be reused. Bearer authentication with the
+administrator secret remains available for trusted API automation.
+
 ## Database migrations (Alembic)
 
 The schema is owned by Alembic. `Base.metadata.create_all()` is **not** used

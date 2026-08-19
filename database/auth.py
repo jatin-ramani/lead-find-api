@@ -1,44 +1,59 @@
+"""Opaque, database-backed administrative sessions."""
+
+import hashlib
 import secrets
-"""
-Authentication dependency for protecting administrative API routes.
-
-Verifies credentials from:
-1. `Authorization: Bearer <token>` header
-2. `leadfinder_session` HttpOnly cookie
-
-Rejects missing or invalid credentials with a standard 401 UNAUTHORIZED envelope.
-"""
-
+from datetime import datetime, timezone
 from typing import Optional
-from fastapi import Cookie, Header
+
+from fastapi import Cookie, Depends, Header
+from sqlalchemy.orm import Session
+
 from config import settings
+from database.db import get_db
+from database.models import AdminSession
 from errors import AppError, ErrorCode
 
 SESSION_COOKIE_NAME = "leadfinder_session"
 
 
+def hash_session_token(token: str) -> str:
+    """Return the non-reversible database representation of a session token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def utcnow() -> datetime:
+    # SQLAlchemy's SQLite DateTime round-trips as a naive value. Keeping all
+    # persisted values naive UTC makes comparisons identical on both databases.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def verify_admin(
     authorization: Optional[str] = Header(None),
     leadfinder_session: Optional[str] = Cookie(None, alias=SESSION_COOKIE_NAME),
+    db: Session = Depends(get_db),
 ) -> None:
-    """
-    FastAPI dependency enforcing administrative authentication.
-
-    Raises AppError(401, ErrorCode.UNAUTHORIZED) if credentials are missing or invalid.
-    """
-    token: Optional[str] = None
-
+    """Allow the API secret as Bearer auth or a live opaque browser session."""
     if authorization:
         parts = authorization.strip().split(maxsplit=1)
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1].strip()
+        if (
+            len(parts) == 2
+            and parts[0].lower() == "bearer"
+            and secrets.compare_digest(parts[1].strip(), settings.admin_secret)
+        ):
+            return
 
-    if not token and leadfinder_session:
-        token = leadfinder_session.strip()
+    if leadfinder_session:
+        token_hash = hash_session_token(leadfinder_session.strip())
+        session = db.get(AdminSession, token_hash)
+        now = utcnow()
+        if session is not None and session.expires_at > now:
+            return
+        if session is not None:
+            db.delete(session)
+            db.commit()
 
-    if not token or not secrets.compare_digest(token, settings.admin_secret):
-        raise AppError(
-            message="Authentication required",
-            status_code=401,
-            error=ErrorCode.UNAUTHORIZED,
-        )
+    raise AppError(
+        message="Authentication required",
+        status_code=401,
+        error=ErrorCode.UNAUTHORIZED,
+    )

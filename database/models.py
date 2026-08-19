@@ -15,6 +15,16 @@ from sqlalchemy.orm import backref, relationship
 from database.db import Base
 
 
+class AdminSession(Base):
+    __tablename__ = "admin_sessions"
+
+    # The raw bearer token exists only in the HttpOnly cookie. A database leak
+    # cannot be turned directly into a live browser session.
+    token_hash = Column(String(64), primary_key=True)
+    created_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
 class Business(Base):
     __tablename__ = "businesses"
 
