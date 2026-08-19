@@ -70,6 +70,25 @@ def test_api_rejects_unknown_boolean(client):
     assert response.json()["error"] == "VALIDATION_ERROR"
 
 
+
+
+@pytest.mark.parametrize(("query", "expected"), [
+    ("", {row[0] for row in ROWS}),
+    ("has_website=true", {"Site both", "Site phone"}),
+    ("has_website=false", {"No site both", "No site email", "No site phone", "No site none", "Whitespace"}),
+    ("has_email=true", {"No site both", "No site email", "Site both"}),
+    ("has_phone=true", {"No site both", "No site phone", "Site both", "Site phone"}),
+    ("has_website=false&has_email=true", {"No site both", "No site email"}),
+    ("has_website=false&has_phone=true", {"No site both", "No site phone"}),
+    ("has_website=false&has_email=true&has_phone=true", {"No site both"}),
+    ("has_email=true&has_phone=true", {"No site both", "Site both"}),
+    ("has_website=true&has_email=true&has_phone=true", {"Site both"}),
+])
+def test_api_boolean_filter_combinations(client, populated, query, expected):
+    response = client.get(f"/businesses?{query}")
+    assert response.status_code == 200
+    assert {row["name"] for row in response.json()["data"]} == expected
+
 def test_dashboard_actionable_aggregation(populated):
     stats = get_dashboard_stats(populated)["business"]
     assert stats == {
