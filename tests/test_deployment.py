@@ -465,7 +465,7 @@ class TestPostgresSupportIsActuallyShipped:
             **os.environ,
             "ENVIRONMENT": "production",
             "ADMIN_SECRET_KEY": "production-secret-not-default-1234567890",
-            "DATABASE_URL": "postgresql+psycopg://leadfinder:pw@db:5432/leadfinder",
+            "DATABASE_URL": "postgresql://leadfinder:pw@db:5432/leadfinder",
             "GEOAPIFY_API_KEY": "a-real-looking-key",
             "CORS_ORIGINS": "https://app.example.com",
             "LEADFINDER_IGNORE_ENV_FILE": "1",

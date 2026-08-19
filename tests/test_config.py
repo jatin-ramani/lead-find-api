@@ -133,15 +133,16 @@ class TestFieldValidation:
         assert "unsupported database dialect" in str(exc.value)
 
     @pytest.mark.parametrize(
-        "url",
+        ("url", "expected"),
         [
-            "sqlite:///./x.db",
-            "postgresql://u:p@h/d",
-            "postgresql+psycopg://u:p@h:5432/d",
+            ("sqlite:///./x.db", "sqlite:///./x.db"),
+            ("postgresql://u:p@h/d", "postgresql+psycopg://u:p@h/d"),
+            ("postgres://u:p@h/d", "postgresql+psycopg://u:p@h/d"),
+            ("postgresql+psycopg://u:p@h:5432/d", "postgresql+psycopg://u:p@h:5432/d"),
         ],
     )
-    def test_supported_dialects_accepted(self, clean_env, url):
-        assert build(clean_env, DATABASE_URL=url).database_url == url
+    def test_supported_dialects_accepted(self, clean_env, url, expected):
+        assert build(clean_env, DATABASE_URL=url).database_url == expected
 
     def test_max_page_size_below_default_rejected(self, clean_env):
         with pytest.raises(ValidationError) as exc:
@@ -478,7 +479,7 @@ class TestSecretMasking:
         """Masking is worthless if it also breaks the thing being configured."""
 
         assert settings.geoapify_api_key == SECRET_KEY
-        assert settings.database_url == SECRET_DSN
+        assert settings.database_url == SECRET_DSN.replace("postgresql://", "postgresql+psycopg://", 1)
         assert settings.has_geoapify_key is True
 
     def test_safe_database_url_masks_the_password_but_keeps_the_target(

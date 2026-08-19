@@ -222,7 +222,12 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """The real DSN. For building the engine, not for printing."""
 
-        return self.DATABASE_URL.get_secret_value()
+        url = self.DATABASE_URL.get_secret_value()
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+        if url.startswith("postgres://"):
+            return url.replace("postgres://", "postgresql+psycopg://", 1)
+        return url
 
     @property
     def safe_database_url(self) -> str:
