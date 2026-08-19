@@ -25,6 +25,7 @@ from api.dashboard import router as dashboard_router
 from api.system import router as system_router
 from api.auth import router as auth_router
 from database.auth import verify_admin
+from database.migrations import run_startup_migrations
 
 # Installs the formatter (human or JSON, per LOG_JSON), the filter that
 # supplies %(request_id)s and the request context, and the secret redaction
@@ -169,6 +170,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     binds a port, not after — so that work stays at import time.
     """
 
+    run_startup_migrations()
     log_startup_configuration()
 
     yield

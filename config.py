@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     )
     DATABASE_ECHO: bool = False
     DATABASE_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=0)
+    RUN_MIGRATIONS: bool = True
 
     # ------------------------------------------------------------------
     # CORS

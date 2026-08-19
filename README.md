@@ -475,10 +475,12 @@ command runs `alembic upgrade head` before Uvicorn and joins the commands with
 incompatible schema. Database and application credentials remain Render-managed
 environment variables (`sync: false`); the blueprint contains no secret values.
 
-Existing manually configured services must be linked to the blueprint, or use
-the blueprint's exact start command. Do not add a second migration command when
-deploying the Docker image: its entrypoint already performs the same fail-closed
-migration step.
+Existing manually configured services should be linked to the blueprint, or use
+the blueprint's exact start command. As a fail-closed safeguard for legacy services
+that still launch `uvicorn app:app` directly, the production FastAPI lifespan also
+runs Alembic before accepting requests. The Docker entrypoint and blueprint set
+`RUN_MIGRATIONS=false` after their successful migration so this safeguard does not
+run the same migration twice.
 
 ### With Docker
 

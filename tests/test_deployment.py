@@ -102,6 +102,7 @@ class TestRenderBlueprint:
 
         assert command.index("alembic upgrade head") < command.index("uvicorn app:app")
         assert "&&" in command, "uvicorn must not start after a failed migration"
+        assert "RUN_MIGRATIONS=false uvicorn" in command
 
     def test_runtime_secrets_have_no_committed_values(self, render_service):
         secrets = {"DATABASE_URL", "ADMIN_SECRET_KEY", "GEOAPIFY_API_KEY", "CORS_ORIGINS"}
@@ -344,6 +345,9 @@ class TestEntrypoint:
         """Multiple replicas should migrate once, as a job, not N times."""
 
         assert "RUN_MIGRATIONS" in entrypoint
+
+    def test_successful_entrypoint_migration_is_not_repeated(self, entrypoint):
+        assert "export RUN_MIGRATIONS=false" in entrypoint
 
     def test_it_never_prints_the_raw_dsn(self, entrypoint):
         """A container log is collected and often widely readable."""

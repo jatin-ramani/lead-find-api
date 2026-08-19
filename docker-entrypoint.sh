@@ -74,6 +74,7 @@ case "${1:-serve}" in
 
         if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
             run_migrations
+            export RUN_MIGRATIONS=false
         else
             log INFO "RUN_MIGRATIONS is not 'true' — skipping migrations"
         fi
