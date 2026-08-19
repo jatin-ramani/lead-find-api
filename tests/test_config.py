@@ -1,5 +1,7 @@
 """Configuration validation — the fail-fast contract."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -57,7 +59,9 @@ class TestDefaults:
         assert settings.database_url.startswith("sqlite:///")
         assert settings.is_sqlite is True
         # Absolute, so the file does not move with the working directory.
-        assert "/backend/database/leadfinder.db" in settings.database_url
+        sqlite_path = settings.database_url.removeprefix("sqlite:///")
+        assert Path(sqlite_path).is_absolute()
+        assert settings.database_url.replace("\\", "/").endswith("/database/leadfinder.db")
 
     def test_default_cors_origins(self, clean_env):
         settings = build(clean_env)
