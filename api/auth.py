@@ -8,7 +8,13 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from config import settings
-from database.auth import SESSION_COOKIE_NAME, hash_session_token, utcnow, verify_admin
+from database.auth import (
+    SESSION_COOKIE_NAME,
+    hash_session_token,
+    session_cookie_options,
+    utcnow,
+    verify_admin,
+)
 from database.db import get_db
 from database.models import AdminSession
 from errors import AppError, ErrorCode
@@ -49,11 +55,8 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
-        httponly=True,
-        samesite="lax",
-        secure=settings.is_production,
         max_age=settings.SESSION_TTL_SECONDS,
-        path="/",
+        **session_cookie_options(),
     )
     return {"success": True, "message": "Authenticated successfully."}
 
@@ -77,10 +80,7 @@ def logout(
 
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
-        path="/",
-        httponly=True,
-        samesite="lax",
-        secure=settings.is_production,
+        **session_cookie_options(),
     )
     return {"success": True, "message": "Logged out successfully."}
 

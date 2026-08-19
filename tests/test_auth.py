@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from datetime import timedelta
 
-from config import settings
+from config import Environment, settings
 from database.auth import hash_session_token, utcnow
 from database.models import AdminSession
 from errors import ErrorCode
@@ -109,11 +109,47 @@ def test_login_with_valid_credentials_sets_opaque_persisted_cookie(unauth_client
     set_cookie = response.headers["set-cookie"].lower()
     assert "httponly" in set_cookie
     assert "samesite=lax" in set_cookie
+    assert "secure" not in set_cookie
+    assert "path=/" in set_cookie
+    assert "domain=" not in set_cookie
     assert f"max-age={settings.SESSION_TTL_SECONDS}" in set_cookie
     session = db.get(AdminSession, hash_session_token(token))
     assert session is not None
     assert session.created_at < session.expires_at
     assert db.query(AdminSession).filter(AdminSession.token_hash == token).first() is None
+
+
+def test_production_cookie_allows_cross_site_credentialed_requests(
+    unauth_client: TestClient, monkeypatch
+):
+    monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+
+    login = unauth_client.post(
+        "/auth/login", json={"secret": settings.admin_secret}
+    )
+
+    assert login.status_code == 200
+    set_cookie = login.headers["set-cookie"].lower()
+    assert "samesite=none" in set_cookie
+    assert "secure" in set_cookie
+    assert "httponly" in set_cookie
+    assert "path=/" in set_cookie
+    assert "domain=" not in set_cookie
+    assert settings.admin_secret not in login.headers["set-cookie"]
+
+    token = login.cookies["leadfinder_session"]
+    cookie_header = {"Cookie": f"leadfinder_session={token}"}
+    assert unauth_client.get("/auth/me", headers=cookie_header).status_code == 200
+
+    logout = unauth_client.post("/auth/logout", headers=cookie_header)
+
+    assert logout.status_code == 200
+    clear_cookie = logout.headers["set-cookie"].lower()
+    assert "samesite=none" in clear_cookie
+    assert "secure" in clear_cookie
+    assert "httponly" in clear_cookie
+    assert "path=/" in clear_cookie
+    assert unauth_client.get("/auth/me", headers=cookie_header).status_code == 401
 
 
 def test_authenticated_request_with_bearer_token(unauth_client: TestClient):

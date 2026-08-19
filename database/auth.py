@@ -16,6 +16,17 @@ from errors import AppError, ErrorCode
 SESSION_COOKIE_NAME = "leadfinder_session"
 
 
+def session_cookie_options() -> dict[str, object]:
+    """Cookie attributes shared by login and logout responses."""
+
+    return {
+        "httponly": True,
+        "samesite": "none" if settings.is_production else "lax",
+        "secure": settings.is_production,
+        "path": "/",
+    }
+
+
 def hash_session_token(token: str) -> str:
     """Return the non-reversible database representation of a session token."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
