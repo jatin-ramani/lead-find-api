@@ -160,4 +160,3 @@ class ScrapeJob(Base):
             sqlite_where=text("status IN ('Pending', 'Running')"),
         ),
     )
-

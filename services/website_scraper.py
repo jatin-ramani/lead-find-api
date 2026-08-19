@@ -692,4 +692,3 @@ def scrape_website(url: str) -> Dict[str, Any]:
         "youtube": socials["youtube"],
         "whatsapp": socials["whatsapp"],
     }
-
