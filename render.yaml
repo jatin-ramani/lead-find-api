@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: lead-find-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: >-
+      alembic upgrade head &&
+      uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1 --no-access-log
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LEADFINDER_IGNORE_ENV_FILE
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_SECRET_KEY
+        sync: false
+      - key: GEOAPIFY_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

@@ -24,6 +24,7 @@ DOCKERFILE = BACKEND / "Dockerfile"
 COMPOSE = BACKEND / "docker-compose.yml"
 DOCKERIGNORE = BACKEND / ".dockerignore"
 ENTRYPOINT = BACKEND / "docker-entrypoint.sh"
+RENDER_BLUEPRINT = BACKEND / "render.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -39,6 +40,12 @@ def compose():
 @pytest.fixture(scope="module")
 def entrypoint():
     return ENTRYPOINT.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def render_service():
+    blueprint = yaml.safe_load(RENDER_BLUEPRINT.read_text(encoding="utf-8"))
+    return blueprint["services"][0]
 
 
 @pytest.fixture(scope="module")
@@ -83,11 +90,25 @@ def rendered_sql():
 
 class TestFilesExist:
     @pytest.mark.parametrize(
-        "path", [DOCKERFILE, COMPOSE, DOCKERIGNORE, ENTRYPOINT]
+        "path", [DOCKERFILE, COMPOSE, DOCKERIGNORE, ENTRYPOINT, RENDER_BLUEPRINT]
     )
     def test_present(self, path):
         assert path.is_file(), f"{path.name} is missing"
 
+
+class TestRenderBlueprint:
+    def test_native_start_migrates_before_serving(self, render_service):
+        command = render_service["startCommand"]
+
+        assert command.index("alembic upgrade head") < command.index("uvicorn app:app")
+        assert "&&" in command, "uvicorn must not start after a failed migration"
+
+    def test_runtime_secrets_have_no_committed_values(self, render_service):
+        secrets = {"DATABASE_URL", "ADMIN_SECRET_KEY", "GEOAPIFY_API_KEY", "CORS_ORIGINS"}
+        configured = {item["key"]: item for item in render_service["envVars"]}
+
+        assert secrets <= configured.keys()
+        assert all(configured[key] == {"key": key, "sync": False} for key in secrets)
 
 class TestDockerfileStructure:
     def test_build_is_multi_stage(self, dockerfile):

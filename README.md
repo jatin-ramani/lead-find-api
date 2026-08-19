@@ -467,6 +467,19 @@ alembic upgrade head
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
+### Render
+
+[`render.yaml`](render.yaml) owns the native Render startup contract. Its start
+command runs `alembic upgrade head` before Uvicorn and joins the commands with
+`&&`, so a failed migration fails the deployment instead of serving against an
+incompatible schema. Database and application credentials remain Render-managed
+environment variables (`sync: false`); the blueprint contains no secret values.
+
+Existing manually configured services must be linked to the blueprint, or use
+the blueprint's exact start command. Do not add a second migration command when
+deploying the Docker image: its entrypoint already performs the same fail-closed
+migration step.
+
 ### With Docker
 
 ```bash
