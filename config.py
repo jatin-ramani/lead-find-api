@@ -375,6 +375,11 @@ class Settings(BaseSettings):
             )
 
         if self.is_production:
+            if len(self.admin_secret) < 32:
+                raise ValueError(
+                    "ADMIN_SECRET_KEY must be at least 32 characters in production"
+                )
+
             if secrets.compare_digest(self.admin_secret, DEFAULT_ADMIN_SECRET):
                 raise ValueError(
                     "ADMIN_SECRET_KEY must be changed from its default in production"
@@ -397,6 +402,11 @@ class Settings(BaseSettings):
             if "*" in self.CORS_ORIGINS:
                 raise ValueError(
                     "CORS_ORIGINS may not be '*' in production"
+                )
+
+            if any(not origin.startswith("https://") for origin in self.CORS_ORIGINS):
+                raise ValueError(
+                    "CORS_ORIGINS must use https in production"
                 )
 
             # The key travels as a query parameter, so plain HTTP would put it

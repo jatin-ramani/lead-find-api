@@ -82,6 +82,8 @@ def test_api_rejects_unknown_boolean(client):
     ("has_website=false&has_phone=true", {"No site both", "No site phone"}),
     ("has_website=false&has_email=true&has_phone=true", {"No site both"}),
     ("has_email=true&has_phone=true", {"No site both", "Site both"}),
+    ("has_website=true&has_email=true", {"Site both"}),
+    ("has_website=true&has_phone=true", {"Site both", "Site phone"}),
     ("has_website=true&has_email=true&has_phone=true", {"Site both"}),
 ])
 def test_api_boolean_filter_combinations(client, populated, query, expected):
@@ -141,3 +143,24 @@ def test_csv_formula_cells_are_prefixed(client, db, prefix):
     assert row[2] == "'+91 123"
     assert row[3] == "safe@example.com"
     assert row[6:9] == ["Category", "Normal", "No Website"]
+def test_csv_preserves_unicode_quotes_line_breaks_and_empty_cells(client, db):
+    save_business(
+        db,
+        'ગુજરાતી "વ્યવસાય", सेवा',
+        None,
+        None,
+        None,
+        "અમદાવાદ",
+        "सेवा",
+        "Line one\nLine two",
+        "No Website",
+        "csv-unicode",
+    )
+    response = client.get("/businesses/export/csv")
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    assert 'filename="businesses.csv"' in response.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+    row = rows[1]
+    assert row[1] == 'ગુજરાતી "વ્યવસાય", सेवा'
+    assert row[2:5] == ["", "", ""]
+    assert row[5:8] == ["અમદાવાદ", "सेवा", "Line one\nLine two"]

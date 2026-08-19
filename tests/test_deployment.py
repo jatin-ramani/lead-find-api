@@ -464,7 +464,7 @@ class TestPostgresSupportIsActuallyShipped:
         env = {
             **os.environ,
             "ENVIRONMENT": "production",
-            "ADMIN_SECRET_KEY": "production-secret-not-default",
+            "ADMIN_SECRET_KEY": "production-secret-not-default-1234567890",
             "DATABASE_URL": "postgresql+psycopg://leadfinder:pw@db:5432/leadfinder",
             "GEOAPIFY_API_KEY": "a-real-looking-key",
             "CORS_ORIGINS": "https://app.example.com",

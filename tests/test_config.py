@@ -160,7 +160,7 @@ class TestProductionRules:
             "GEOAPIFY_API_KEY": "key",
             "DATABASE_URL": "postgresql://u:p@h/d",
             "CORS_ORIGINS": "https://app.test",
-            "ADMIN_SECRET_KEY": "production-secret-not-default",
+            "ADMIN_SECRET_KEY": "production-secret-not-default-1234567890",
         }
         base.update(overrides)
 
@@ -180,6 +180,17 @@ class TestProductionRules:
             )
         assert "ADMIN_SECRET_KEY must be changed" in str(exc.value)
 
+    def test_short_admin_secret_rejected(self, clean_env):
+        with pytest.raises(ValidationError) as exc:
+            self._production(clean_env, ADMIN_SECRET_KEY="short-production-secret")
+
+        assert "at least 32 characters" in str(exc.value)
+
+    def test_http_cors_origin_rejected_in_production(self, clean_env):
+        with pytest.raises(ValidationError) as exc:
+            self._production(clean_env, CORS_ORIGINS="http://app.test")
+
+        assert "must use https" in str(exc.value)
     def test_missing_api_key_rejected(self, clean_env):
         with pytest.raises(ValidationError) as exc:
             self._production(clean_env, GEOAPIFY_API_KEY="")
@@ -294,7 +305,7 @@ class TestConfigurationWarnings:
         settings = build(
             clean_env,
             ENVIRONMENT="production",
-            ADMIN_SECRET_KEY="production-secret-not-default",
+            ADMIN_SECRET_KEY="production-secret-not-default-1234567890",
             DEBUG="true",
             GEOAPIFY_API_KEY="real-key",
             DATABASE_URL="postgresql://u:p@h/d",
@@ -387,7 +398,7 @@ class TestStartupValidation:
         result = self._run(
             "import app",
             ENVIRONMENT="production",
-            ADMIN_SECRET_KEY="production-secret-not-default",
+            ADMIN_SECRET_KEY="production-secret-not-default-1234567890",
             GEOAPIFY_API_KEY="",
             DATABASE_URL="postgresql://u:p@h/d",
             CORS_ORIGINS="https://app.test",
