@@ -40,19 +40,37 @@ def utcnow() -> datetime:
 
 def verify_admin(
     authorization: Optional[str] = Header(None),
+    x_session_token: Optional[str] = Header(None, alias="x-session-token"),
     leadfinder_session: Optional[str] = Cookie(None, alias=SESSION_COOKIE_NAME),
     db: Session = Depends(get_db),
 ) -> None:
-    """Allow the API secret as Bearer auth or a live opaque browser session."""
+    """Allow the API secret as Bearer auth, header-based session token, or live opaque cookie."""
     if authorization:
         parts = authorization.strip().split(maxsplit=1)
-        if (
-            len(parts) == 2
-            and parts[0].lower() == "bearer"
-            and secrets.compare_digest(parts[1].strip(), settings.admin_secret)
-        ):
-            return
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            bearer_val = parts[1].strip()
+            # 1. Check if bearer matches static admin secret
+            if secrets.compare_digest(bearer_val, settings.admin_secret):
+                return
+            # 2. Check if bearer contains an active opaque session token
+            token_hash = hash_session_token(bearer_val)
+            session = db.get(AdminSession, token_hash)
+            now = utcnow()
+            if session is not None and session.expires_at > now:
+                return
 
+    # 3. Check X-Session-Token header
+    if x_session_token:
+        token_hash = hash_session_token(x_session_token.strip())
+        session = db.get(AdminSession, token_hash)
+        now = utcnow()
+        if session is not None and session.expires_at > now:
+            return
+        if session is not None:
+            db.delete(session)
+            db.commit()
+
+    # 4. Check leadfinder_session cookie
     if leadfinder_session:
         token_hash = hash_session_token(leadfinder_session.strip())
         session = db.get(AdminSession, token_hash)

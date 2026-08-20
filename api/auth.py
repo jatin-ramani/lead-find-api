@@ -58,7 +58,11 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         max_age=settings.SESSION_TTL_SECONDS,
         **session_cookie_options(),
     )
-    return {"success": True, "message": "Authenticated successfully."}
+    return {
+        "success": True,
+        "message": "Authenticated successfully.",
+        "token": token,
+    }
 
 
 @router.post(
