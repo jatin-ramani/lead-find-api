@@ -53,8 +53,8 @@ class TestSystemEndpoints:
         ]
 
         assert schema["openapi"].startswith("3.")
-        assert len(schema["paths"]) == 23
-        assert len(operations) == 27
+        assert len(schema["paths"]) == 25
+        assert len(operations) == 29
 
     def test_every_operation_is_documented(self, client):
         """Swagger is the contract; an undocumented endpoint is a regression."""
@@ -140,6 +140,21 @@ class TestGetBusiness:
 
     def test_non_integer_id_returns_422(self, client):
         assert client.get("/businesses/abc").status_code == 422
+
+    def test_list_discovered_cities(self, client, sample_businesses):
+        response = client.get("/businesses/cities")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert len(body["data"]) > 0
+        city_entry = body["data"][0]
+        assert "city" in city_entry
+        assert "totalBusinesses" in city_entry
+        assert "withWebsite" in city_entry
+        assert "withoutWebsite" in city_entry
+        assert "withEmail" in city_entry
+        assert "withPhone" in city_entry
+        assert "actionableLeads" in city_entry
 
 
 class TestDeleteBusiness:
@@ -320,6 +335,18 @@ class TestJobEndpoints:
     def test_scrape_job_missing_and_malformed(self, client):
         assert client.get("/scrape/jobs/9999").status_code == 404
         assert client.get("/scrape/jobs/abc").status_code == 422
+
+    def test_scrape_job_results_endpoint(self, client, db):
+        job_id = crud.create_scrape_job(db, total_websites=2)
+        response = client.get(f"/scrape/jobs/{job_id}/results")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert "data" in body
+        assert "pagination" in body
+        assert "summary" in body
+        assert "cities" in body
+        assert client.get("/scrape/jobs/9999/results").status_code == 404
 
     def test_delete_scrape_job(self, client, db):
         job_id = crud.create_scrape_job(db, total_websites=1)

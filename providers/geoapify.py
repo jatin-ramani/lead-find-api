@@ -6,6 +6,7 @@ import requests
 from config import settings
 from providers.exceptions import GeoapifyError
 from services.geocoder import geocode_city, get_coordinates
+from services.taxonomy import normalize_category
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,10 @@ def fetch_places_page(
     if limit is None:
         limit = settings.GEOAPIFY_SEARCH_LIMIT
 
+    normalized_cat = normalize_category(category)
+
     params = {
-        "categories": category,
+        "categories": normalized_cat,
         "limit": limit,
         "offset": offset,
     }

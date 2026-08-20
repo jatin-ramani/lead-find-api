@@ -1,0 +1,552 @@
+{
+  "healthcare": [
+    {
+      "category": "healthcare",
+      "supported": true,
+      "count": 5,
+      "first_place": "Vadilal Sarabhai Hospital",
+      "first_cats": [
+        "healthcare",
+        "healthcare.hospital"
+      ],
+      "has_phone": 1,
+      "has_web": 0
+    },
+    {
+      "category": "healthcare.dentist",
+      "supported": true,
+      "count": 5,
+      "first_place": "Aksharamrut Dental Clinic",
+      "first_cats": [
+        "healthcare.dentist"
+      ],
+      "has_phone": 1,
+      "has_web": 1
+    },
+    {
+      "category": "healthcare.clinic_or_praxis",
+      "supported": true,
+      "count": 5,
+      "first_place": "Herbal Unani Clinic",
+      "first_cats": [
+        "healthcare.clinic_or_praxis"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "healthcare.clinic_or_praxis.general",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "healthcare.pharmacy",
+      "supported": true,
+      "count": 1,
+      "first_place": "Apollo Pharmacy",
+      "first_cats": [
+        "commercial.health_and_beauty",
+        "commercial.health_and_beauty.pharmacy",
+        "healthcare.pharmacy"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "healthcare.hospital",
+      "supported": true,
+      "count": 5,
+      "first_place": "Karnavati Hospital Pvt. Ltd.",
+      "first_cats": [
+        "healthcare.hospital"
+      ],
+      "has_phone": 0,
+      "has_web": 1
+    }
+  ],
+  "catering": [
+    {
+      "category": "catering",
+      "supported": true,
+      "count": 5,
+      "first_place": "Paramount",
+      "first_cats": [
+        "catering",
+        "catering.restaurant"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "catering.restaurant",
+      "supported": true,
+      "count": 5,
+      "first_place": "Paramount",
+      "first_cats": [
+        "catering",
+        "catering.restaurant"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "catering.fast_food",
+      "supported": true,
+      "count": 5,
+      "first_place": "Gol Limbda Bhajiya and Nashta House",
+      "first_cats": [
+        "catering",
+        "catering.fast_food"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "catering.cafe",
+      "supported": true,
+      "count": 5,
+      "first_place": "Ghandi Cold Drink House",
+      "first_cats": [
+        "catering",
+        "catering.cafe",
+        "catering.cafe.ice_cream",
+        "catering.ice_cream"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "catering.bakery",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"catering.bakery\\\" is not supported.\"}"
+    },
+    {
+      "category": "catering.bar",
+      "supported": true,
+      "count": 1,
+      "first_place": "Lala Lajpat Rai Marg, Maninagar, - 380008, Gujarat, India",
+      "first_cats": [
+        "catering",
+        "catering.bar"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "catering.pub",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    }
+  ],
+  "service": [
+    {
+      "category": "service",
+      "supported": true,
+      "count": 5,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "commercial",
+        "service",
+        "service.beauty",
+        "service.beauty.hairdresser"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.beauty",
+      "supported": true,
+      "count": 1,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "commercial",
+        "service",
+        "service.beauty",
+        "service.beauty.hairdresser"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.beauty.hairdresser",
+      "supported": true,
+      "count": 1,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "commercial",
+        "service",
+        "service.beauty",
+        "service.beauty.hairdresser"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.beauty.salon",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"service.beauty.salon\\\" is not supported.\"}"
+    },
+    {
+      "category": "service.vehicle",
+      "supported": true,
+      "count": 5,
+      "first_place": "Relief Road, Manek Chowk, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "service",
+        "service.vehicle",
+        "service.vehicle.fuel"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.vehicle.car_repair",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"service.vehicle.car_repair\\\" is not supported.\"}"
+    },
+    {
+      "category": "service.vehicle.car_wash",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.financial.bank",
+      "supported": true,
+      "count": 5,
+      "first_place": "The State Bank of India, Ahmedabad Office",
+      "first_cats": [
+        "service",
+        "service.financial",
+        "service.financial.bank"
+      ],
+      "has_phone": 0,
+      "has_web": 2
+    },
+    {
+      "category": "service.tailor",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "service.dry_cleaning",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"service.dry_cleaning\\\" is not supported.\"}"
+    }
+  ],
+  "education": [
+    {
+      "category": "education",
+      "supported": true,
+      "count": 5,
+      "first_place": "Ahmedabad Bar Association Advocate Library",
+      "first_cats": [
+        "education",
+        "education.library"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "education.school",
+      "supported": true,
+      "count": 5,
+      "first_place": "Balghar",
+      "first_cats": [
+        "education",
+        "education.school"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "education.college",
+      "supported": true,
+      "count": 5,
+      "first_place": "Smt. N.H.L. Municipal Medical College",
+      "first_cats": [
+        "building",
+        "building.college",
+        "education",
+        "education.college"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "education.university",
+      "supported": true,
+      "count": 5,
+      "first_place": "Gujrat Vidhyapeeth",
+      "first_cats": [
+        "building",
+        "building.university",
+        "education",
+        "education.university"
+      ],
+      "has_phone": 1,
+      "has_web": 3
+    },
+    {
+      "category": "education.music_school",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "education.driving_school",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "education.library",
+      "supported": true,
+      "count": 5,
+      "first_place": "Ahmedabad Bar Association Advocate Library",
+      "first_cats": [
+        "education",
+        "education.library"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    }
+  ],
+  "commercial": [
+    {
+      "category": "commercial",
+      "supported": true,
+      "count": 5,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "commercial",
+        "service",
+        "service.beauty",
+        "service.beauty.hairdresser"
+      ],
+      "has_phone": 0,
+      "has_web": 1
+    },
+    {
+      "category": "commercial.clothing",
+      "supported": true,
+      "count": 5,
+      "first_place": "Ahmedabad Trunk, House of Mg",
+      "first_cats": [
+        "commercial",
+        "commercial.clothing",
+        "commercial.clothing.clothes",
+        "commercial.food_and_drink",
+        "commercial.food_and_drink.organic"
+      ],
+      "has_phone": 2,
+      "has_web": 4
+    },
+    {
+      "category": "commercial.jewelry",
+      "supported": false,
+      "error": "'charmap' codec can't encode characters in position 50-55: character maps to <undefined>"
+    },
+    {
+      "category": "commercial.electronics",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"commercial.electronics\\\" is not supported.\"}"
+    },
+    {
+      "category": "commercial.supermarket",
+      "supported": true,
+      "count": 5,
+      "first_place": "10 (Ten) Acres Mall",
+      "first_cats": [
+        "commercial",
+        "commercial.supermarket",
+        "wheelchair",
+        "wheelchair.limited"
+      ],
+      "has_phone": 0,
+      "has_web": 2
+    },
+    {
+      "category": "commercial.health_and_beauty",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "commercial.books",
+      "supported": true,
+      "count": 4,
+      "first_place": "HARSHAL PUBLICATION",
+      "first_cats": [
+        "commercial",
+        "commercial.books"
+      ],
+      "has_phone": 1,
+      "has_web": 1
+    },
+    {
+      "category": "commercial.furniture_and_interior",
+      "supported": true,
+      "count": 1,
+      "first_place": "Gujarat Handicrafts",
+      "first_cats": [
+        "commercial",
+        "commercial.furniture_and_interior"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    }
+  ],
+  "accommodation": [
+    {
+      "category": "accommodation",
+      "supported": true,
+      "count": 5,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "accommodation",
+        "accommodation.guest_house"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "accommodation.hotel",
+      "supported": true,
+      "count": 5,
+      "first_place": "Sahara",
+      "first_cats": [
+        "accommodation",
+        "accommodation.hotel"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "accommodation.hostel",
+      "supported": true,
+      "count": 5,
+      "first_place": "Hostel B",
+      "first_cats": [
+        "accommodation",
+        "accommodation.hostel",
+        "building",
+        "building.accommodation"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "accommodation.guest_house",
+      "supported": true,
+      "count": 5,
+      "first_place": "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India",
+      "first_cats": [
+        "accommodation",
+        "accommodation.guest_house"
+      ],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "accommodation.motel",
+      "supported": true,
+      "count": 2,
+      "first_place": "Hotel Westend",
+      "first_cats": [
+        "accommodation",
+        "accommodation.motel",
+        "building",
+        "building.accommodation"
+      ],
+      "has_phone": 2,
+      "has_web": 1
+    },
+    {
+      "category": "accommodation.apartment",
+      "supported": true,
+      "count": 5,
+      "first_place": "Approch media",
+      "first_cats": [
+        "accommodation",
+        "accommodation.apartment"
+      ],
+      "has_phone": 1,
+      "has_web": 1
+    }
+  ],
+  "activity": [
+    {
+      "category": "activity",
+      "supported": true,
+      "count": 5,
+      "first_place": "Jamalpur",
+      "first_cats": [
+        "activity",
+        "activity.community_center"
+      ],
+      "has_phone": 0,
+      "has_web": 1
+    },
+    {
+      "category": "activity.sport_club",
+      "supported": true,
+      "count": 0,
+      "first_place": "",
+      "first_cats": [],
+      "has_phone": 0,
+      "has_web": 0
+    },
+    {
+      "category": "activity.fitness_center",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"activity.fitness_center\\\" is not supported.\"}"
+    },
+    {
+      "category": "activity.cinema",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"activity.cinema\\\" is not supported.\"}"
+    },
+    {
+      "category": "activity.community_center",
+      "supported": true,
+      "count": 4,
+      "first_place": "Jamalpur",
+      "first_cats": [
+        "activity",
+        "activity.community_center"
+      ],
+      "has_phone": 0,
+      "has_web": 1
+    },
+    {
+      "category": "activity.sports_centre",
+      "supported": false,
+      "error": "Geoapify Error 400: {\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Invalid parameters. Category \\\"activity.sports_centre\\\" is not supported.\"}"
+    }
+  ]
+}

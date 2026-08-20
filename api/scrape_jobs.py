@@ -1,12 +1,13 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database.db import get_db
 from database.crud import (
     get_scrape_jobs,
     get_scrape_job,
+    get_scrape_job_results,
     delete_scrape_job,
 )
 from database.models import ScrapeJob
@@ -130,6 +131,44 @@ def read_scrape_job(
         "success": True,
         "data": _serialise(job),
     }
+
+
+@router.get(
+    "/{job_id}/results",
+    summary="Get scrape job results",
+    description="Returns paginated detailed results of scraped websites for a specific scrape job, with status/city filtering.",
+    response_description="Detailed scrape results and summary.",
+    responses={
+        404: _NOT_FOUND,
+        422: _BAD_ID,
+    },
+)
+def read_scrape_job_results(
+    job_id: int,
+    page: int = Query(1, ge=1, description="1-based page number."),
+    pageSize: int = Query(20, ge=1, le=100, description="Rows per page."),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status (Completed, Failed)."),
+    city: Optional[str] = Query(None, description="Filter by city name."),
+    search: Optional[str] = Query(None, description="Search business name, website or title."),
+    db: Session = Depends(get_db),
+):
+    results = get_scrape_job_results(
+        db=db,
+        job_id=job_id,
+        page=page,
+        page_size=pageSize,
+        status=status_filter,
+        city=city,
+        search=search,
+    )
+
+    if results is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scrape job not found",
+        )
+
+    return results
 
 
 @router.delete(

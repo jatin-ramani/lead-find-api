@@ -26,6 +26,7 @@ from database.crud import (
     get_business_by_id,
     delete_business,
     delete_businesses,
+    get_city_summaries,
     get_failed_scrape_targets,
     get_running_scrape_job,
     get_selected_scrape_targets,
@@ -741,6 +742,22 @@ def scrape_selected_business_websites(
         "success": True,
         "job_id": job_id,
         "message": "Selected website scraping started.",
+    }
+
+
+@router.get(
+    "/cities",
+    summary="Get discovered cities summary",
+    description="Returns aggregate counts and qualification statistics for every discovered city.",
+    response_description="List of discovered cities and their metrics.",
+)
+def list_discovered_cities(
+    db: Session = Depends(get_db),
+):
+    cities = get_city_summaries(db)
+    return {
+        "success": True,
+        "data": cities,
     }
 
 

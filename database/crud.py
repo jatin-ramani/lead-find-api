@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import and_, case, func, or_, text
@@ -532,6 +532,45 @@ def delete_businesses(db: Session, business_ids: Sequence[int]) -> int:
     return len(businesses)
 
 
+def get_city_summaries(db: Session) -> List[Dict[str, Any]]:
+    """
+    Aggregate discovered businesses by city.
+    Returns counts and qualification breakdowns for each city.
+    """
+    rows = (
+        db.query(
+            func.coalesce(Business.city, "Unknown").label("city"),
+            func.count(Business.id).label("total_businesses"),
+            _count_if(HAS_WEBSITE).label("with_website"),
+            _count_if(NO_WEBSITE).label("without_website"),
+            _count_if(HAS_EMAIL).label("with_email"),
+            _count_if(NO_EMAIL).label("without_email"),
+            _count_if(HAS_PHONE).label("with_phone"),
+            _count_if(NO_PHONE).label("without_phone"),
+            _count_if(and_(NO_WEBSITE, or_(HAS_EMAIL, HAS_PHONE))).label("actionable_leads"),
+        )
+        .group_by(Business.city)
+        .order_by(func.count(Business.id).desc(), Business.city.asc())
+        .all()
+    )
+
+    return [
+        {
+            "city": row.city,
+            "totalBusinesses": _as_int(row.total_businesses),
+            "withWebsite": _as_int(row.with_website),
+            "withoutWebsite": _as_int(row.without_website),
+            "withEmail": _as_int(row.with_email),
+            "withoutEmail": _as_int(row.without_email),
+            "withPhone": _as_int(row.with_phone),
+            "withoutPhone": _as_int(row.without_phone),
+            "actionableLeads": _as_int(row.actionable_leads),
+        }
+        for row in rows
+        if row.total_businesses > 0
+    ]
+
+
 # ======================================================
 # SCAN JOB CRUD
 # ======================================================
@@ -803,6 +842,168 @@ def delete_scrape_job(db: Session, job_id: int):
     db.commit()
 
     return True
+
+
+def get_scrape_job_results(
+    db: Session,
+    job_id: int,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    status: Optional[str] = None,
+    city: Optional[str] = None,
+    search: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Return paginated website records scraped during a specific scrape job,
+    along with job summary and city breakdown.
+    """
+    job = get_scrape_job(db, job_id)
+    if job is None:
+        return None
+
+    page = max(1, page)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
+    summary = {
+        "id": job.id,
+        "status": job.status,
+        "progress": job.progress,
+        "total_websites": job.total_websites,
+        "completed": job.completed,
+        "success": job.success,
+        "failed": job.failed,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+    }
+
+    if not job.started_at:
+        return {
+            "success": True,
+            "data": [],
+            "pagination": {
+                "page": page,
+                "pageSize": page_size,
+                "totalItems": 0,
+                "totalPages": 1,
+            },
+            "summary": summary,
+            "cities": [],
+        }
+
+    # Find the upper bound time window for this job
+    start_time = job.started_at
+    next_job = (
+        db.query(ScrapeJob)
+        .filter(ScrapeJob.id != job.id, ScrapeJob.started_at > start_time)
+        .order_by(ScrapeJob.started_at.asc())
+        .first()
+    )
+
+    base_query = (
+        db.query(WebsiteData, Business)
+        .join(Business, WebsiteData.business_id == Business.id)
+        .filter(WebsiteData.scraped_at >= start_time)
+    )
+
+    if next_job and next_job.started_at:
+        base_query = base_query.filter(WebsiteData.scraped_at < next_job.started_at)
+    elif job.completed_at:
+        base_query = base_query.filter(WebsiteData.scraped_at <= job.completed_at + timedelta(seconds=10))
+
+    # Calculate city breakdown from all results in this job before pagination
+    all_job_items = base_query.all()
+    city_counts: Dict[str, Dict[str, int]] = {}
+    for w_data, b_info in all_job_items:
+        c_name = b_info.city or "Unknown"
+        if c_name not in city_counts:
+            city_counts[c_name] = {"count": 0, "success": 0, "failed": 0}
+        city_counts[c_name]["count"] += 1
+        if w_data.status == COMPLETED_STATUS:
+            city_counts[c_name]["success"] += 1
+        else:
+            city_counts[c_name]["failed"] += 1
+
+    cities_list = [
+        {"city": k, "count": v["count"], "success": v["success"], "failed": v["failed"]}
+        for k, v in sorted(city_counts.items(), key=lambda x: x[1]["count"], reverse=True)
+    ]
+
+    filtered_query = base_query
+    status_clean = _clean(status)
+    if status_clean:
+        filtered_query = filtered_query.filter(WebsiteData.status == status_clean)
+
+    city_clean = _clean(city)
+    if city_clean:
+        filtered_query = filtered_query.filter(Business.city == city_clean)
+
+    search_clean = _clean(search)
+    if search_clean:
+        pattern = f"%{_escape_like(search_clean)}%"
+        filtered_query = filtered_query.filter(
+            or_(
+                Business.name.ilike(pattern, escape="\\"),
+                Business.website.ilike(pattern, escape="\\"),
+                WebsiteData.title.ilike(pattern, escape="\\"),
+            )
+        )
+
+    total_items = filtered_query.count()
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+
+    rows = (
+        filtered_query
+        .order_by(WebsiteData.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = []
+    for w_data, b_info in rows:
+        emails_list = []
+        if w_data.emails:
+            try:
+                parsed = json.loads(w_data.emails)
+                if isinstance(parsed, list):
+                    emails_list = parsed
+            except Exception:
+                emails_list = [w_data.emails]
+
+        items.append({
+            "id": w_data.id,
+            "business_id": b_info.id,
+            "business_name": b_info.name,
+            "business_city": b_info.city or "Unknown",
+            "business_category": b_info.category or "General",
+            "business_phone": b_info.phone,
+            "website": b_info.website,
+            "status": w_data.status,
+            "title": w_data.title,
+            "meta_description": w_data.meta_description,
+            "emails": emails_list,
+            "facebook": w_data.facebook,
+            "instagram": w_data.instagram,
+            "linkedin": w_data.linkedin,
+            "youtube": w_data.youtube,
+            "twitter": w_data.twitter,
+            "whatsapp": w_data.whatsapp,
+            "scraped_at": w_data.scraped_at,
+            "failure_reason": "Failed to connect to website or extract content." if w_data.status == FAILED_STATUS else None,
+        })
+
+    return {
+        "success": True,
+        "data": items,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "totalItems": total_items,
+            "totalPages": total_pages,
+        },
+        "summary": summary,
+        "cities": cities_list,
+    }
 
 
 # ======================================================

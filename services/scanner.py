@@ -27,6 +27,7 @@ from providers.geoapify import (
     search_businesses,
 )
 from services.geocoder import geocode_city
+from services.taxonomy import normalize_category
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ def scan_city(city: str, category: str) -> int:
     """
     Run a paginated scan to completion and return its job id.
 
+    Normalizes the category alias/term to a verified Geoapify category key.
     Raises `ScanFailed` if the scan did not complete. The job is marked
     "Failed" before the exception leaves, so the two records — the HTTP
     response and the job row — always agree.
@@ -84,8 +86,10 @@ def scan_city(city: str, category: str) -> int:
 
     db = SessionLocal()
 
+    normalized_cat = normalize_category(category)
+
     try:
-        job_id = create_scan_job(db=db, city=city, category=category)
+        job_id = create_scan_job(db=db, city=city, category=normalized_cat)
 
         total = 0
         added = 0
@@ -101,12 +105,12 @@ def scan_city(city: str, category: str) -> int:
                 offset = page * limit
 
                 logger.info(
-                    "Scan job %s: fetching page %s (offset=%s, limit=%s) for %r/%r",
-                    job_id, page + 1, offset, limit, city, category,
+                    "Scan job %s: fetching page %s (offset=%s, limit=%s) for %r/%r (normalized: %r)",
+                    job_id, page + 1, offset, limit, city, category, normalized_cat,
                 )
 
                 if page == 0:
-                    page_features = search_businesses(city, category)
+                    page_features = search_businesses(city, normalized_cat)
                 else:
                     if not place_id and not (lat and lon):
                         geo_res = geocode_city(city)
@@ -114,7 +118,7 @@ def scan_city(city: str, category: str) -> int:
                             lat, lon, place_id = geo_res
 
                     page_features = fetch_places_page(
-                        category=category,
+                        category=normalized_cat,
                         place_id=place_id,
                         latitude=lat,
                         longitude=lon,
@@ -142,7 +146,7 @@ def scan_city(city: str, category: str) -> int:
                     properties = business.get("properties", {})
                     contact = properties.get("contact", {})
 
-                    name = properties.get("name") or properties.get("formatted") or f"Unnamed {category.capitalize()}"
+                    name = properties.get("name") or properties.get("formatted") or f"Unnamed {normalized_cat.capitalize()}"
                     website = properties.get("website")
                     status = "Has Website" if website else "No Website"
 
@@ -153,7 +157,7 @@ def scan_city(city: str, category: str) -> int:
                         email=contact.get("email"),
                         website=website,
                         city=city,
-                        category=category,
+                        category=normalized_cat,
                         address=properties.get("formatted"),
                         status=status,
                         place_id=properties.get("place_id"),

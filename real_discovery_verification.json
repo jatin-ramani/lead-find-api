@@ -1,0 +1,144 @@
+[
+  {
+    "query": "Dental Clinics",
+    "normalized": "healthcare.dentist",
+    "count": 5,
+    "places": [
+      "Aksharamrut Dental Clinic",
+      "Aashu Dental Multispeciality Polyclinic",
+      "My dentist",
+      "Premal Dental Clinic",
+      "Shreyas Dental Hospital"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Clinics",
+    "normalized": "healthcare.clinic_or_praxis",
+    "count": 5,
+    "places": [
+      "Herbal Unani Clinic",
+      "Dr.Haroonbhai Jusabbhai Memon",
+      "Dr. Nimesh Trivedi",
+      "Sparsh Orthopedic Oncology Clinic",
+      "Urvashi Nursing Home"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Pharmacies",
+    "normalized": "healthcare.pharmacy",
+    "count": 1,
+    "places": [
+      "Apollo Pharmacy"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Cafes",
+    "normalized": "catering.cafe",
+    "count": 5,
+    "places": [
+      "Ghandi Cold Drink House",
+      "Relief Cyber Cafe",
+      "Authentic cafe",
+      "Chai Gate!!!",
+      "Udipi Cafe"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Restaurants",
+    "normalized": "catering.restaurant",
+    "count": 5,
+    "places": [
+      "Paramount",
+      "K.G.N. Chinese Fry Centre",
+      "Nishat",
+      "Nishat",
+      "Chicken biryani"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Bakeries",
+    "normalized": "commercial.food_and_drink.bakery",
+    "count": 5,
+    "places": [
+      "janta bakery",
+      "manhar doodh ghar",
+      "bhogilal mulchand",
+      "bherunath jain chavana house",
+      "rehmati bakery"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Salons",
+    "normalized": "service.beauty.hairdresser",
+    "count": 1,
+    "places": [
+      "Swami Vivekananda Road, Jamalpur, Ahmedabad - 380001, Gujarat, India"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Auto Repair",
+    "normalized": "service.vehicle.repair",
+    "count": 0,
+    "places": [],
+    "status": "PASS_ZERO_RESULTS"
+  },
+  {
+    "query": "Electronics",
+    "normalized": "commercial.elektronics",
+    "count": 1,
+    "places": [
+      "Ashram Road, Ambawadi, Navrangpura - 380006, Gujarat, India"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Jewellery",
+    "normalized": "commercial.jewelry",
+    "count": 1,
+    "places": [
+      "\u091a\u093f\u0930\u093e\u0917\u093c \u091c\u0935\u0947\u0932\u094d\u0932\u0930\u094d\u0938"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Clothing",
+    "normalized": "commercial.clothing",
+    "count": 5,
+    "places": [
+      "Ahmedabad Trunk, House of Mg",
+      "Asopalav",
+      "readymadepocket",
+      "readymadepocket",
+      "Sarangpur Flyover, Sarangpur, - 380021, Gujarat, India"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Gyms",
+    "normalized": "sport.fitness",
+    "count": 1,
+    "places": [
+      "Gymnasium"
+    ],
+    "status": "PASS"
+  },
+  {
+    "query": "Cinemas",
+    "normalized": "entertainment.cinema",
+    "count": 4,
+    "places": [
+      "Relief Cinema",
+      "Rupalee Cinema",
+      "Apsara Aradhana Movie Theatre",
+      "Anupam Cinema"
+    ],
+    "status": "PASS"
+  }
+]
