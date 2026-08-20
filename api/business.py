@@ -62,6 +62,7 @@ from services.bulk_scraper import (
     scrape_missing_websites,
     scrape_selected_websites,
 )
+from services.lead_scoring import calculate_lead_score
 from services.website_scraper import scrape_website
 
 router = APIRouter(
@@ -109,6 +110,8 @@ CSV_COLUMNS = (
     "Category",
     "Address",
     "Status",
+    "Lead Score",
+    "Lead Grade",
 )
 
 
@@ -150,6 +153,9 @@ def list_businesses(
     has_website: Optional[bool] = Query(None, description="Website availability."),
     has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
     has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
+    lead_grade: Optional[str] = Query(None, description="Filter by lead grade (A, B, C, D)."),
+    min_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Minimum lead score (0-100)."),
+    max_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Maximum lead score (0-100)."),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -178,6 +184,9 @@ def list_businesses(
         has_website=has_website,
         has_email=has_email,
         has_phone=has_phone,
+        lead_grade=lead_grade,
+        min_lead_score=min_lead_score,
+        max_lead_score=max_lead_score,
         sort_by=sortBy,
         sort_order=sortOrder,
     )
@@ -218,6 +227,8 @@ def _csv_stream(batches: Iterable[Sequence[Business]]) -> Iterator[str]:
                     _csv_safe(business.category),
                     _csv_safe(business.address),
                     _csv_safe(business.status),
+                    _csv_safe(business.lead_score or 0),
+                    _csv_safe(business.lead_grade or "D"),
                 ]
             )
 
@@ -232,6 +243,9 @@ def _filtered_business_batches(
     has_website: Optional[bool],
     has_email: Optional[bool],
     has_phone: Optional[bool],
+    lead_grade: Optional[str],
+    min_lead_score: Optional[int],
+    max_lead_score: Optional[int],
     sort_by: Optional[str],
     sort_order: Optional[str],
 ) -> Iterator[List[Business]]:
@@ -257,6 +271,9 @@ def _filtered_business_batches(
             has_website=has_website,
             has_email=has_email,
             has_phone=has_phone,
+            lead_grade=lead_grade,
+            min_lead_score=min_lead_score,
+            max_lead_score=max_lead_score,
             sort_by=sort_by,
             sort_order=sort_order,
         )
@@ -365,6 +382,9 @@ def export_businesses_csv(
     has_website: Optional[bool] = Query(None, description="Website availability."),
     has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
     has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
+    lead_grade: Optional[str] = Query(None, description="Filter by lead grade (A, B, C, D)."),
+    min_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Minimum lead score."),
+    max_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Maximum lead score."),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -394,6 +414,9 @@ def export_businesses_csv(
             has_website=has_website,
             has_email=has_email,
             has_phone=has_phone,
+            lead_grade=lead_grade,
+            min_lead_score=min_lead_score,
+            max_lead_score=max_lead_score,
             sort_by=sortBy,
             sort_order=sortOrder,
         )
@@ -828,7 +851,13 @@ def get_business(
             detail="Business not found",
         )
 
-    return business
+    # Calculate explainable score breakdown
+    scored = calculate_lead_score(business, getattr(business, "website_data", None))
+    data = BusinessResponse.model_validate(business)
+    data.lead_score = business.lead_score if business.lead_score is not None else scored.score
+    data.lead_grade = business.lead_grade if business.lead_grade is not None else scored.grade
+    data.lead_score_reasons = scored.reasons
+    return data
 
 
 @router.delete(

@@ -15,6 +15,9 @@ class BusinessResponse(BaseModel):
     category: Optional[str] = None
     address: Optional[str] = None
     status: Optional[str] = None
+    lead_score: Optional[int] = 0
+    lead_grade: Optional[str] = "D"
+    lead_score_reasons: Optional[List[str]] = None
 
     model_config = {
         "from_attributes": True
@@ -128,6 +131,9 @@ class BusinessFilterRequest(BaseModel):
     has_website: Optional[bool] = None
     has_email: Optional[bool] = None
     has_phone: Optional[bool] = None
+    lead_grade: Optional[str] = None
+    min_lead_score: Optional[int] = None
+    max_lead_score: Optional[int] = None
 
 
 class ExportPreviewRequest(BaseModel):

@@ -44,6 +44,9 @@ class Business(Base):
 
     place_id = Column(String, unique=True)
 
+    lead_score = Column(Integer, default=0, index=True)
+    lead_grade = Column(String(2), default="D", index=True)
+
 
 class ScanJob(Base):
     __tablename__ = "scan_jobs"
@@ -60,7 +63,6 @@ class ScanJob(Base):
     total_businesses = Column(Integer, default=0)
     new_businesses = Column(Integer, default=0)
 
-    # NEW
     total_cells = Column(Integer, default=0)
     completed_cells = Column(Integer, default=0)
 
@@ -99,8 +101,8 @@ class WebsiteData(Base):
     )
 
     status = Column(
-    String,
-    default="Pending",
+        String,
+        default="Pending",
     )
 
     # `backref` builds the reverse accessor on Business at mapper-configuration
@@ -142,10 +144,10 @@ class ScrapeJob(Base):
     # a job record should survive the business it was last working on being
     # deleted mid-run.
     current_business_id = Column(
-    Integer,
-    ForeignKey("businesses.id", ondelete="SET NULL"),
-    nullable=True,
-)
+        Integer,
+        ForeignKey("businesses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # No defaults — a job is created "Pending", so it has not started yet and
     # both timestamps are set by the service as the run progresses.
     started_at = Column(DateTime, nullable=True)

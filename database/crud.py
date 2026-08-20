@@ -8,6 +8,7 @@ from sqlalchemy.orm import Query, Session
 
 from config import settings
 from database.models import Business, ScanJob, ScrapeJob, WebsiteData
+from services.lead_scoring import calculate_lead_score
 
 
 # ======================================================
@@ -33,6 +34,8 @@ SORTABLE_COLUMNS: Dict[str, Any] = {
     "city": Business.city,
     "category": Business.category,
     "status": Business.status,
+    "lead_score": Business.lead_score,
+    "lead_grade": Business.lead_grade,
 }
 
 SORT_ORDERS = ("asc", "desc")
@@ -123,13 +126,17 @@ def _apply_business_filters(
     has_website: Optional[bool] = None,
     has_email: Optional[bool] = None,
     has_phone: Optional[bool] = None,
+    lead_grade: Optional[str] = None,
+    min_lead_score: Optional[int] = None,
+    max_lead_score: Optional[int] = None,
     business_ids: Optional[Sequence[int]] = None,
 ) -> Query:
-    """Apply the optional search, contact and filter clauses to a Business query."""
+    """Apply the optional search, contact, lead score and filter clauses to a Business query."""
 
     search = _clean(search)
     city = _clean(city)
     category = _clean(category)
+    lead_grade = _clean(lead_grade)
 
     if business_ids is not None:
         unique_ids = {int(b_id) for b_id in business_ids}
@@ -164,6 +171,13 @@ def _apply_business_filters(
         query = query.filter(HAS_EMAIL)
     if has_phone is True:
         query = query.filter(HAS_PHONE)
+
+    if lead_grade:
+        query = query.filter(Business.lead_grade == lead_grade.upper())
+    if min_lead_score is not None:
+        query = query.filter(Business.lead_score >= min_lead_score)
+    if max_lead_score is not None:
+        query = query.filter(Business.lead_score <= max_lead_score)
 
     return query
 
@@ -223,6 +237,16 @@ def save_business(
         if existing:
             return False
 
+    initial_score = calculate_lead_score({
+        "name": name,
+        "phone": phone,
+        "email": email,
+        "website": website,
+        "city": city,
+        "category": category,
+        "address": address,
+    })
+
     business = Business(
         name=name,
         phone=phone,
@@ -233,6 +257,8 @@ def save_business(
         address=address,
         status=status,
         place_id=place_id,
+        lead_score=initial_score.score,
+        lead_grade=initial_score.grade,
     )
 
     db.add(business)
@@ -252,6 +278,9 @@ def get_businesses(
     has_website: Optional[bool] = None,
     has_email: Optional[bool] = None,
     has_phone: Optional[bool] = None,
+    lead_grade: Optional[str] = None,
+    min_lead_score: Optional[int] = None,
+    max_lead_score: Optional[int] = None,
     sort_by: Optional[str] = DEFAULT_SORT_BY,
     sort_order: Optional[str] = DEFAULT_SORT_ORDER,
     business_ids: Optional[Sequence[int]] = None,
@@ -261,7 +290,7 @@ def get_businesses(
 
     `search` matches name, phone, email or website. `city`, `category`,
     `status` and `contact` are exact-match filters. `sort_by` accepts id, name,
-    city, category or status; `sort_order` accepts asc or desc. All are optional
+    city, category, status, or lead_score; `sort_order` accepts asc or desc. All are optional
     and invalid values fall back to the defaults.
     """
 
@@ -278,6 +307,9 @@ def get_businesses(
         has_website=has_website,
         has_email=has_email,
         has_phone=has_phone,
+        lead_grade=lead_grade,
+        min_lead_score=min_lead_score,
+        max_lead_score=max_lead_score,
         business_ids=business_ids,
     )
 
@@ -383,12 +415,16 @@ def count_businesses(
     has_website: Optional[bool] = None,
     has_email: Optional[bool] = None,
     has_phone: Optional[bool] = None,
+    lead_grade: Optional[str] = None,
+    min_lead_score: Optional[int] = None,
+    max_lead_score: Optional[int] = None,
     business_ids: Optional[Sequence[int]] = None,
 ) -> int:
     """Count rows through the canonical business filter path."""
     return _apply_business_filters(
         db.query(Business), search=search, city=city, category=category,
         has_website=has_website, has_email=has_email, has_phone=has_phone,
+        lead_grade=lead_grade, min_lead_score=min_lead_score, max_lead_score=max_lead_score,
         business_ids=business_ids,
     ).count()
 
@@ -548,6 +584,8 @@ def get_city_summaries(db: Session) -> List[Dict[str, Any]]:
             _count_if(HAS_PHONE).label("with_phone"),
             _count_if(NO_PHONE).label("without_phone"),
             _count_if(and_(NO_WEBSITE, or_(HAS_EMAIL, HAS_PHONE))).label("actionable_leads"),
+            func.avg(Business.lead_score).label("average_lead_score"),
+            _count_if(Business.lead_grade == "A").label("high_quality_leads"),
         )
         .group_by(Business.city)
         .order_by(func.count(Business.id).desc(), Business.city.asc())
@@ -565,6 +603,8 @@ def get_city_summaries(db: Session) -> List[Dict[str, Any]]:
             "withPhone": _as_int(row.with_phone),
             "withoutPhone": _as_int(row.without_phone),
             "actionableLeads": _as_int(row.actionable_leads),
+            "averageLeadScore": round(float(row.average_lead_score or 0), 1),
+            "highQualityLeads": _as_int(row.high_quality_leads),
         }
         for row in rows
         if row.total_businesses > 0
@@ -1227,6 +1267,14 @@ def save_website_data(
 
     # Column defaults only fire on INSERT, so an update needs this set by hand.
     record.scraped_at = datetime.now(timezone.utc)
+
+    # Recalculate parent business lead_score and lead_grade
+    business = db.query(Business).filter(Business.id == business_id).first()
+    if business:
+        scored = calculate_lead_score(business, record)
+        business.lead_score = scored.score
+        business.lead_grade = scored.grade
+        db.add(business)
 
     db.commit()
     db.refresh(record)

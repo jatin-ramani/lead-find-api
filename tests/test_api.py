@@ -85,6 +85,7 @@ class TestListBusinesses:
         assert set(body["data"][0]) == {
             "id", "name", "phone", "email", "website",
             "city", "category", "address", "status",
+            "lead_score", "lead_grade", "lead_score_reasons",
         }
 
     def test_pagination_query_params(self, client, sample_businesses):
@@ -215,6 +216,7 @@ class TestCsvExport:
         assert rows[0] == [
             "ID", "Name", "Phone", "Email", "Website",
             "City", "Category", "Address", "Status",
+            "Lead Score", "Lead Grade",
         ]
 
     def test_exports_every_matching_row_ignoring_pagination(

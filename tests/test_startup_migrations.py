@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0006"
+        assert revision == "0007"
         assert "admin_sessions" in inspector.get_table_names()
         assert inspector.get_pk_constraint("admin_sessions")["constrained_columns"] == [
             "token_hash"
