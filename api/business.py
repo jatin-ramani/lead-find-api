@@ -37,10 +37,17 @@ from database.models import Business
 
 from schemas.business import (
     BulkBusinessRequest,
+    BulkFavoriteRequest,
+    BulkFavoriteResponse,
+    BulkLeadStatusRequest,
+    BulkLeadStatusResponse,
+    BusinessFilterRequest,
     BusinessResponse,
     BusinessListResponse,
     ExportPreviewRequest,
     ExportPreviewResponse,
+    FavoriteToggleRequest,
+    LeadStatusUpdateRequest,
     SelectedExportRequest,
     ScrapeSelectedRequest,
     WebsiteDataDetailResponse,
@@ -61,6 +68,15 @@ from services.bulk_scraper import (
     scrape_failed_websites,
     scrape_missing_websites,
     scrape_selected_websites,
+)
+from services.favorite_service import (
+    bulk_set_favorites,
+    set_business_favorite,
+    toggle_business_favorite,
+)
+from services.lead_status_service import (
+    bulk_update_lead_status,
+    update_business_lead_status,
 )
 from services.lead_scoring import calculate_lead_score
 from services.website_scraper import scrape_website
@@ -87,7 +103,7 @@ BUSINESS_NOT_FOUND = error_response(
 FILTER_DOCS = (
     "Optional filters: `search` matches name, phone, e-mail or website; "
     "`city` and `category` are exact matches. `has_website`, `has_email`, "
-    "and `has_phone` are strict booleans combined with AND semantics."
+    "`has_phone`, and `is_favorite` are strict booleans combined with AND semantics."
 )
 
 DANGEROUS_CSV_PREFIXES = ("=", "+", "-", "@")
@@ -100,6 +116,15 @@ def _csv_safe(value):
     return value
 
 
+LEAD_STATUS_DISPLAY = {
+    "new": "New",
+    "contacted": "Contacted",
+    "interested": "Interested",
+    "follow_up": "Follow-up",
+    "converted": "Converted",
+    "lost": "Lost",
+}
+
 CSV_COLUMNS = (
     "ID",
     "Name",
@@ -110,8 +135,11 @@ CSV_COLUMNS = (
     "Category",
     "Address",
     "Status",
+    "Lead Status",
     "Lead Score",
     "Lead Grade",
+    "Tags",
+    "Favorite",
 )
 
 
@@ -127,6 +155,7 @@ CSV_COLUMNS = (
     responses={422: VALIDATION_ERROR_RESPONSE},
 )
 def list_businesses(
+    filters: BusinessFilterRequest = Depends(),
     page: int = Query(
         1,
         ge=1,
@@ -138,24 +167,6 @@ def list_businesses(
         le=MAX_PAGE_SIZE,
         description=f"Rows per page (max {MAX_PAGE_SIZE}).",
     ),
-    search: Optional[str] = Query(
-        None,
-        description="Matches name, phone, email or website.",
-    ),
-    city: Optional[str] = Query(
-        None,
-        description="Exact city match.",
-    ),
-    category: Optional[str] = Query(
-        None,
-        description="Exact category match.",
-    ),
-    has_website: Optional[bool] = Query(None, description="Website availability."),
-    has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
-    has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
-    lead_grade: Optional[str] = Query(None, description="Filter by lead grade (A, B, C, D)."),
-    min_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Minimum lead score (0-100)."),
-    max_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Maximum lead score (0-100)."),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -178,15 +189,18 @@ def list_businesses(
         db=db,
         page=page,
         page_size=pageSize,
-        search=search,
-        city=city,
-        category=category,
-        has_website=has_website,
-        has_email=has_email,
-        has_phone=has_phone,
-        lead_grade=lead_grade,
-        min_lead_score=min_lead_score,
-        max_lead_score=max_lead_score,
+        search=filters.search,
+        city=filters.city,
+        category=filters.category,
+        has_website=filters.has_website,
+        has_email=filters.has_email,
+        has_phone=filters.has_phone,
+        lead_grade=filters.lead_grade,
+        min_lead_score=filters.min_lead_score,
+        max_lead_score=filters.max_lead_score,
+        tags=filters.tags,
+        is_favorite=filters.is_favorite,
+        lead_status=filters.lead_status,
         sort_by=sortBy,
         sort_order=sortOrder,
     )
@@ -216,6 +230,7 @@ def _csv_stream(batches: Iterable[Sequence[Business]]) -> Iterator[str]:
     for batch in batches:
 
         for business in batch:
+            tags_str = ", ".join(t.name for t in (business.tags or []))
             writer.writerow(
                 [
                     business.id,
@@ -227,8 +242,11 @@ def _csv_stream(batches: Iterable[Sequence[Business]]) -> Iterator[str]:
                     _csv_safe(business.category),
                     _csv_safe(business.address),
                     _csv_safe(business.status),
+                    _csv_safe(LEAD_STATUS_DISPLAY.get(business.lead_status or "new", "New")),
                     _csv_safe(business.lead_score or 0),
                     _csv_safe(business.lead_grade or "D"),
+                    _csv_safe(tags_str),
+                    _csv_safe("Yes" if business.is_favorite else "No"),
                 ]
             )
 
@@ -246,6 +264,9 @@ def _filtered_business_batches(
     lead_grade: Optional[str],
     min_lead_score: Optional[int],
     max_lead_score: Optional[int],
+    tags: Optional[str],
+    is_favorite: Optional[bool],
+    lead_status: Optional[str],
     sort_by: Optional[str],
     sort_order: Optional[str],
 ) -> Iterator[List[Business]]:
@@ -274,6 +295,9 @@ def _filtered_business_batches(
             lead_grade=lead_grade,
             min_lead_score=min_lead_score,
             max_lead_score=max_lead_score,
+            tags=tags,
+            is_favorite=is_favorite,
+            lead_status=lead_status,
             sort_by=sort_by,
             sort_order=sort_order,
         )
@@ -318,6 +342,12 @@ def _csv_response(batches: Iterable[Sequence[Business]]) -> StreamingResponse:
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{CSV_FILENAME}"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            # Standard custom header so frontend knows how many rows to expect
+            # when it can be calculated cheaply.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
@@ -353,12 +383,10 @@ def preview_business_export(payload: ExportPreviewRequest, db: Session = Depends
     summary="Export businesses as CSV",
     description=(
         "Streams every business matching the filters as a UTF-8 CSV "
-        "download.\n\n"
-        "Pagination does **not** apply - the whole matching set is "
-        "exported, streamed in chunks so the table is never held in "
-        "memory. A byte-order mark is emitted first so Excel reads "
-        "accented names correctly.\n\n"
+        "attachment with RFC 4180 escaping and an Excel-compatible BOM.\n\n"
         + FILTER_DOCS
+        + "\n\n"
+        "Pagination does not apply: the export covers the full filtered result set."
     ),
     response_description="A streamed businesses.csv attachment.",
     responses={
@@ -367,24 +395,7 @@ def preview_business_export(payload: ExportPreviewRequest, db: Session = Depends
     },
 )
 def export_businesses_csv(
-    search: Optional[str] = Query(
-        None,
-        description="Matches name, phone, email or website.",
-    ),
-    city: Optional[str] = Query(
-        None,
-        description="Exact city match.",
-    ),
-    category: Optional[str] = Query(
-        None,
-        description="Exact category match.",
-    ),
-    has_website: Optional[bool] = Query(None, description="Website availability."),
-    has_email: Optional[bool] = Query(None, description="Require a non-blank email."),
-    has_phone: Optional[bool] = Query(None, description="Require a non-blank phone."),
-    lead_grade: Optional[str] = Query(None, description="Filter by lead grade (A, B, C, D)."),
-    min_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Minimum lead score."),
-    max_lead_score: Optional[int] = Query(None, ge=0, le=100, description="Maximum lead score."),
+    filters: BusinessFilterRequest = Depends(),
     sortBy: Optional[str] = Query(
         DEFAULT_SORT_BY,
         description=(
@@ -408,15 +419,18 @@ def export_businesses_csv(
     return _csv_response(
         _filtered_business_batches(
             db=db,
-            search=search,
-            city=city,
-            category=category,
-            has_website=has_website,
-            has_email=has_email,
-            has_phone=has_phone,
-            lead_grade=lead_grade,
-            min_lead_score=min_lead_score,
-            max_lead_score=max_lead_score,
+            search=filters.search,
+            city=filters.city,
+            category=filters.category,
+            has_website=filters.has_website,
+            has_email=filters.has_email,
+            has_phone=filters.has_phone,
+            lead_grade=filters.lead_grade,
+            min_lead_score=filters.min_lead_score,
+            max_lead_score=filters.max_lead_score,
+            tags=filters.tags,
+            is_favorite=filters.is_favorite,
+            lead_status=filters.lead_status,
             sort_by=sortBy,
             sort_order=sortOrder,
         )
@@ -928,4 +942,168 @@ def remove_business(
     return {
         "success": True,
         "message": "Business deleted successfully.",
+    }
+
+
+@router.patch(
+    "/{business_id}/favorite",
+    response_model=BusinessResponse,
+    summary="Update business favorite status",
+    description="Sets or unsets the favorite flag on a single business idempotently.",
+    responses={
+        404: BUSINESS_NOT_FOUND,
+        422: PATH_VALIDATION_ERROR_RESPONSE,
+    },
+)
+def update_business_favorite(
+    business_id: int,
+    payload: FavoriteToggleRequest,
+    db: Session = Depends(get_db),
+):
+    business = set_business_favorite(
+        db=db,
+        business_id=business_id,
+        is_favorite=payload.is_favorite,
+    )
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    scored = calculate_lead_score(business, getattr(business, "website_data", None))
+    data = BusinessResponse.model_validate(business)
+    data.lead_score = business.lead_score if business.lead_score is not None else scored.score
+    data.lead_grade = business.lead_grade if business.lead_grade is not None else scored.grade
+    data.lead_score_reasons = scored.reasons
+    return data
+
+
+@router.post(
+    "/{business_id}/favorite",
+    response_model=BusinessResponse,
+    summary="Favorite a business",
+    description="Marks a single business as favorite idempotently.",
+    responses={
+        404: BUSINESS_NOT_FOUND,
+        422: PATH_VALIDATION_ERROR_RESPONSE,
+    },
+)
+def favorite_business(
+    business_id: int,
+    db: Session = Depends(get_db),
+):
+    business = set_business_favorite(db=db, business_id=business_id, is_favorite=True)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    scored = calculate_lead_score(business, getattr(business, "website_data", None))
+    data = BusinessResponse.model_validate(business)
+    data.lead_score = business.lead_score if business.lead_score is not None else scored.score
+    data.lead_grade = business.lead_grade if business.lead_grade is not None else scored.grade
+    data.lead_score_reasons = scored.reasons
+    return data
+
+
+@router.delete(
+    "/{business_id}/favorite",
+    response_model=BusinessResponse,
+    summary="Unfavorite a business",
+    description="Unsets the favorite flag on a single business idempotently.",
+    responses={
+        404: BUSINESS_NOT_FOUND,
+        422: PATH_VALIDATION_ERROR_RESPONSE,
+    },
+)
+def unfavorite_business(
+    business_id: int,
+    db: Session = Depends(get_db),
+):
+    business = set_business_favorite(db=db, business_id=business_id, is_favorite=False)
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    scored = calculate_lead_score(business, getattr(business, "website_data", None))
+    data = BusinessResponse.model_validate(business)
+    data.lead_score = business.lead_score if business.lead_score is not None else scored.score
+    data.lead_grade = business.lead_grade if business.lead_grade is not None else scored.grade
+    data.lead_score_reasons = scored.reasons
+    return data
+
+
+@router.post(
+    "/favorite/bulk",
+    response_model=BulkFavoriteResponse,
+    summary="Bulk favorite/unfavorite businesses",
+    description="Bulk updates favorite state for multiple businesses in a single transaction.",
+    responses={422: VALIDATION_ERROR_RESPONSE},
+)
+def bulk_update_favorites(
+    payload: BulkFavoriteRequest,
+    db: Session = Depends(get_db),
+):
+    result = bulk_set_favorites(
+        db=db,
+        business_ids=payload.business_ids,
+        is_favorite=payload.is_favorite,
+    )
+    return {
+        "success": True,
+        "message": "Favorites updated" if payload.is_favorite else "Favorites removed",
+        "updated_count": result["updated_count"],
+        "total_requested": result["total_requested"],
+        "is_favorite": result["is_favorite"],
+    }
+
+
+@router.patch(
+    "/{business_id}/status",
+    response_model=BusinessResponse,
+    summary="Update business lead status",
+    description="Updates the CRM pipeline status of a single business.",
+    responses={
+        404: BUSINESS_NOT_FOUND,
+        422: PATH_VALIDATION_ERROR_RESPONSE,
+    },
+)
+def update_business_status(
+    business_id: int,
+    payload: LeadStatusUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    business = update_business_lead_status(
+        db=db,
+        business_id=business_id,
+        status=payload.status,
+    )
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    scored = calculate_lead_score(business, getattr(business, "website_data", None))
+    data = BusinessResponse.model_validate(business)
+    data.lead_score = business.lead_score if business.lead_score is not None else scored.score
+    data.lead_grade = business.lead_grade if business.lead_grade is not None else scored.grade
+    data.lead_score_reasons = scored.reasons
+    return data
+
+
+@router.post(
+    "/status/bulk",
+    response_model=BulkLeadStatusResponse,
+    summary="Bulk update business lead statuses",
+    description="Bulk updates CRM pipeline status for multiple businesses in a single transaction.",
+    responses={422: VALIDATION_ERROR_RESPONSE},
+)
+def bulk_update_status(
+    payload: BulkLeadStatusRequest,
+    db: Session = Depends(get_db),
+):
+    result = bulk_update_lead_status(
+        db=db,
+        business_ids=payload.business_ids,
+        status=payload.status,
+    )
+    return {
+        "success": True,
+        "message": f"Lead status updated to {result['status']}",
+        "updated_count": result["updated_count"],
+        "total_requested": result["total_requested"],
+        "status": result["status"],
     }

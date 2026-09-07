@@ -53,8 +53,8 @@ class TestSystemEndpoints:
         ]
 
         assert schema["openapi"].startswith("3.")
-        assert len(schema["paths"]) == 25
-        assert len(operations) == 29
+        assert len(schema["paths"]) == 43
+        assert len(operations) == 56
 
     def test_every_operation_is_documented(self, client):
         """Swagger is the contract; an undocumented endpoint is a regression."""
@@ -85,7 +85,8 @@ class TestListBusinesses:
         assert set(body["data"][0]) == {
             "id", "name", "phone", "email", "website",
             "city", "category", "address", "status",
-            "lead_score", "lead_grade", "lead_score_reasons",
+            "lead_status", "lead_score", "lead_grade", "lead_score_reasons",
+            "tags", "is_favorite",
         }
 
     def test_pagination_query_params(self, client, sample_businesses):
@@ -216,7 +217,7 @@ class TestCsvExport:
         assert rows[0] == [
             "ID", "Name", "Phone", "Email", "Website",
             "City", "Category", "Address", "Status",
-            "Lead Score", "Lead Grade",
+            "Lead Status", "Lead Score", "Lead Grade", "Tags", "Favorite",
         ]
 
     def test_exports_every_matching_row_ignoring_pagination(

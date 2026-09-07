@@ -90,14 +90,20 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0007"
+        assert revision == "0013"
         assert "admin_sessions" in inspector.get_table_names()
+        assert "business_follow_ups" in inspector.get_table_names()
         assert inspector.get_pk_constraint("admin_sessions")["constrained_columns"] == [
             "token_hash"
         ]
         assert "ix_admin_sessions_expires_at" in {
             index["name"] for index in inspector.get_indexes("admin_sessions")
         }
+        follow_up_indexes = {
+            index["name"] for index in inspector.get_indexes("business_follow_ups")
+        }
+        assert "ix_business_follow_ups_biz_due" in follow_up_indexes
+        assert "ix_business_follow_ups_biz_status" in follow_up_indexes
     finally:
         if engine is not None:
             engine.dispose()

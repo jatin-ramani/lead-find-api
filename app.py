@@ -18,6 +18,10 @@ from logging_config import RequestLogMiddleware, configure_logging
 
 from api.business import router as business_router
 from api.business import scrape_router
+from api.tags import router as tag_router, business_tags_router
+from api.notes import router as notes_router
+from api.activities import router as activities_router
+from api.follow_ups import router as follow_ups_router
 from api.scanner import router as scanner_router
 from api.scan_jobs import router as scan_jobs_router
 from api.scrape_jobs import router as scrape_jobs_router
@@ -62,7 +66,7 @@ scrape job may run at a time; starting another while one is in flight returns
 
 * Action endpoints answer `{"success": true, ...}`.
 * Endpoints that take a list of ids ignore duplicates and unknown ids rather
-  than rejecting the whole request.
+   than rejecting the whole request.
 
 ### Errors
 
@@ -119,6 +123,10 @@ TAGS_METADATA = [
     {
         "name": "Dashboard",
         "description": "Aggregated statistics for the admin dashboard.",
+    },
+    {
+        "name": "Follow-ups",
+        "description": "CRM follow-ups and scheduled reminders for leads.",
     },
     {
         "name": "System",
@@ -244,6 +252,11 @@ app.include_router(system_router)
 
 # Protected routers requiring administrative authentication
 app.include_router(business_router, dependencies=[Depends(verify_admin)])
+app.include_router(tag_router, dependencies=[Depends(verify_admin)])
+app.include_router(business_tags_router, dependencies=[Depends(verify_admin)])
+app.include_router(notes_router, dependencies=[Depends(verify_admin)])
+app.include_router(activities_router, dependencies=[Depends(verify_admin)])
+app.include_router(follow_ups_router, dependencies=[Depends(verify_admin)])
 app.include_router(scrape_router, dependencies=[Depends(verify_admin)])
 app.include_router(scanner_router, dependencies=[Depends(verify_admin)])
 app.include_router(scan_jobs_router, dependencies=[Depends(verify_admin)])

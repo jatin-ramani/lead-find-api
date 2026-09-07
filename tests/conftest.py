@@ -29,8 +29,12 @@ from database.db import Base, SessionLocal, engine  # noqa: E402
 from database.models import (  # noqa: E402
     AdminSession,
     Business,
+    BusinessActivity,
+    BusinessNote,
+    BusinessTag,
     ScanJob,
     ScrapeJob,
+    Tag,
     WebsiteData,
 )
 
@@ -84,8 +88,8 @@ def clean_tables(_schema):
     session = SessionLocal()
 
     try:
-        # Children first: website_data references businesses.
-        for model in (AdminSession, WebsiteData, ScrapeJob, ScanJob, Business):
+        # Children first: website_data, business_notes, business_activities, business_tags reference businesses / tags.
+        for model in (AdminSession, BusinessActivity, BusinessNote, BusinessTag, Tag, WebsiteData, ScrapeJob, ScanJob, Business):
             session.query(model).delete()
 
         session.commit()

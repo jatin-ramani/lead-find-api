@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Query, Session
 
 from config import settings
-from database.models import Business, ScanJob, ScrapeJob, WebsiteData
+from database.models import Business, BusinessTag, ScanJob, ScrapeJob, Tag, WebsiteData
 from services.lead_scoring import calculate_lead_score
 
 
@@ -34,8 +34,10 @@ SORTABLE_COLUMNS: Dict[str, Any] = {
     "city": Business.city,
     "category": Business.category,
     "status": Business.status,
+    "lead_status": Business.lead_status,
     "lead_score": Business.lead_score,
     "lead_grade": Business.lead_grade,
+    "is_favorite": Business.is_favorite,
 }
 
 SORT_ORDERS = ("asc", "desc")
@@ -98,6 +100,7 @@ def _as_int(value: Any) -> int:
 
 def _clean(value: Optional[str]) -> Optional[str]:
     """Trim a filter value and treat blank strings as "no filter"."""
+
     if value is None:
         return None
 
@@ -129,14 +132,19 @@ def _apply_business_filters(
     lead_grade: Optional[str] = None,
     min_lead_score: Optional[int] = None,
     max_lead_score: Optional[int] = None,
+    tags: Optional[str] = None,
+    is_favorite: Optional[bool] = None,
+    lead_status: Optional[str] = None,
     business_ids: Optional[Sequence[int]] = None,
 ) -> Query:
-    """Apply the optional search, contact, lead score and filter clauses to a Business query."""
+    """Apply the optional search, contact, lead score, tag, favorite, lead status and filter clauses to a Business query."""
 
     search = _clean(search)
     city = _clean(city)
     category = _clean(category)
     lead_grade = _clean(lead_grade)
+    tags = _clean(tags)
+    lead_status = _clean(lead_status)
 
     if business_ids is not None:
         unique_ids = {int(b_id) for b_id in business_ids}
@@ -169,8 +177,21 @@ def _apply_business_filters(
 
     if has_email is True:
         query = query.filter(HAS_EMAIL)
+    elif has_email is False:
+        query = query.filter(NO_EMAIL)
+
     if has_phone is True:
         query = query.filter(HAS_PHONE)
+    elif has_phone is False:
+        query = query.filter(NO_PHONE)
+
+    if is_favorite is True:
+        query = query.filter(Business.is_favorite.is_(True))
+    elif is_favorite is False:
+        query = query.filter(Business.is_favorite.is_(False))
+
+    if lead_status:
+        query = query.filter(Business.lead_status == lead_status.lower())
 
     if lead_grade:
         query = query.filter(Business.lead_grade == lead_grade.upper())
@@ -178,6 +199,20 @@ def _apply_business_filters(
         query = query.filter(Business.lead_score >= min_lead_score)
     if max_lead_score is not None:
         query = query.filter(Business.lead_score <= max_lead_score)
+
+    if tags:
+        tokens = [t.strip() for t in tags.split(",") if t.strip()]
+        for token in tokens:
+            token_slug = token.lower().replace(" ", "-")
+            query = query.filter(
+                Business.tags.any(
+                    or_(
+                        Tag.slug == token_slug,
+                        Tag.name.ilike(token),
+                        Tag.id == int(token) if token.isdigit() else text("1=0"),
+                    )
+                )
+            )
 
     return query
 
@@ -262,6 +297,19 @@ def save_business(
     )
 
     db.add(business)
+    db.flush()
+
+    from services.activity_service import ACTIVITY_BUSINESS_CREATED, create_activity
+    create_activity(
+        db=db,
+        business_id=business.id,
+        activity_type=ACTIVITY_BUSINESS_CREATED,
+        title="Business created",
+        description="Lead discovered and added to CRM",
+        metadata={"city": city, "category": category, "name": name},
+        commit=False,
+    )
+
     db.commit()
     db.refresh(business)
 
@@ -281,6 +329,9 @@ def get_businesses(
     lead_grade: Optional[str] = None,
     min_lead_score: Optional[int] = None,
     max_lead_score: Optional[int] = None,
+    tags: Optional[str] = None,
+    is_favorite: Optional[bool] = None,
+    lead_status: Optional[str] = None,
     sort_by: Optional[str] = DEFAULT_SORT_BY,
     sort_order: Optional[str] = DEFAULT_SORT_ORDER,
     business_ids: Optional[Sequence[int]] = None,
@@ -289,8 +340,8 @@ def get_businesses(
     Return a page of businesses together with its pagination metadata.
 
     `search` matches name, phone, email or website. `city`, `category`,
-    `status` and `contact` are exact-match filters. `sort_by` accepts id, name,
-    city, category, status, or lead_score; `sort_order` accepts asc or desc. All are optional
+    `status`, `lead_status` and `contact` are exact-match filters. `sort_by` accepts id, name,
+    city, category, status, lead_status, lead_score, or is_favorite; `sort_order` accepts asc or desc. All are optional
     and invalid values fall back to the defaults.
     """
 
@@ -310,6 +361,9 @@ def get_businesses(
         lead_grade=lead_grade,
         min_lead_score=min_lead_score,
         max_lead_score=max_lead_score,
+        tags=tags,
+        is_favorite=is_favorite,
+        lead_status=lead_status,
         business_ids=business_ids,
     )
 
@@ -418,6 +472,9 @@ def count_businesses(
     lead_grade: Optional[str] = None,
     min_lead_score: Optional[int] = None,
     max_lead_score: Optional[int] = None,
+    tags: Optional[str] = None,
+    is_favorite: Optional[bool] = None,
+    lead_status: Optional[str] = None,
     business_ids: Optional[Sequence[int]] = None,
 ) -> int:
     """Count rows through the canonical business filter path."""
@@ -425,6 +482,9 @@ def count_businesses(
         db.query(Business), search=search, city=city, category=category,
         has_website=has_website, has_email=has_email, has_phone=has_phone,
         lead_grade=lead_grade, min_lead_score=min_lead_score, max_lead_score=max_lead_score,
+        tags=tags,
+        is_favorite=is_favorite,
+        lead_status=lead_status,
         business_ids=business_ids,
     ).count()
 
@@ -1271,10 +1331,67 @@ def save_website_data(
     # Recalculate parent business lead_score and lead_grade
     business = db.query(Business).filter(Business.id == business_id).first()
     if business:
+        prev_score = business.lead_score
+        prev_grade = business.lead_grade
         scored = calculate_lead_score(business, record)
         business.lead_score = scored.score
         business.lead_grade = scored.grade
         db.add(business)
+
+        from services.activity_service import (
+            ACTIVITY_EMAIL_ADDED,
+            ACTIVITY_LEAD_SCORE_CHANGED,
+            ACTIVITY_SCRAPE_COMPLETED,
+            create_activity,
+        )
+
+        # Observational email activity if previously missing
+        if emails and not business.email:
+            create_activity(
+                db=db,
+                business_id=business.id,
+                activity_type=ACTIVITY_EMAIL_ADDED,
+                title="Email found",
+                description="Discovered email address from website scrape",
+                metadata={"source": "scraper"},
+                commit=False,
+            )
+
+        # Observational lead score change activity
+        if scored.score != prev_score or scored.grade != prev_grade:
+            create_activity(
+                db=db,
+                business_id=business.id,
+                activity_type=ACTIVITY_LEAD_SCORE_CHANGED,
+                title=f"Lead score changed to {scored.score}",
+                description=f"Score updated from {prev_score} ({prev_grade}) to {scored.score} ({scored.grade})",
+                metadata={
+                    "previous_score": prev_score,
+                    "new_score": scored.score,
+                    "previous_grade": prev_grade,
+                    "new_grade": scored.grade,
+                },
+                commit=False,
+            )
+
+        # Scrape completed activity
+        if status == COMPLETED_STATUS:
+            fields_updated = []
+            if emails:
+                fields_updated.append("email")
+            if facebook or instagram or linkedin or twitter or youtube or whatsapp:
+                fields_updated.append("social_links")
+            if title or meta_description:
+                fields_updated.append("meta_data")
+            create_activity(
+                db=db,
+                business_id=business.id,
+                activity_type=ACTIVITY_SCRAPE_COMPLETED,
+                title="Website scrape completed",
+                description="Successfully scraped website content and metadata",
+                metadata={"source": "scraper", "fields_updated": fields_updated},
+                commit=False,
+            )
 
     db.commit()
     db.refresh(record)
