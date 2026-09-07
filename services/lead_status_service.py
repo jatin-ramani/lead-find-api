@@ -27,6 +27,10 @@ from services.activity_service import (
     bulk_create_activities,
     create_activity,
 )
+from services.email_automation_service import (
+    TRIGGER_LEAD_STATUS_CHANGED,
+    evaluate_automations_for_event,
+)
 
 
 def get_business_by_id(db: Session, business_id: int) -> Optional[Business]:
@@ -63,6 +67,13 @@ def update_business_lead_status(
             title="Lead status changed",
             description=f"{old_label} → {new_label}",
             metadata={"old_status": old_status, "new_status": status},
+            commit=False,
+        )
+        evaluate_automations_for_event(
+            db=db,
+            trigger_type=TRIGGER_LEAD_STATUS_CHANGED,
+            business_id=business_id,
+            event_discriminator=status,
             commit=False,
         )
         db.commit()
@@ -133,6 +144,15 @@ def bulk_update_lead_status(
         for b_id, old_st in businesses_to_update
     ]
     bulk_create_activities(db, activities_data, commit=False)
+
+    for b_id, _ in businesses_to_update:
+        evaluate_automations_for_event(
+            db=db,
+            trigger_type=TRIGGER_LEAD_STATUS_CHANGED,
+            business_id=b_id,
+            event_discriminator=status,
+            commit=False,
+        )
 
     db.commit()
 

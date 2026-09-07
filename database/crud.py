@@ -300,6 +300,7 @@ def save_business(
     db.flush()
 
     from services.activity_service import ACTIVITY_BUSINESS_CREATED, create_activity
+    from services.email_automation_service import TRIGGER_LEAD_CREATED, evaluate_automations_for_event
     create_activity(
         db=db,
         business_id=business.id,
@@ -307,6 +308,12 @@ def save_business(
         title="Business created",
         description="Lead discovered and added to CRM",
         metadata={"city": city, "category": category, "name": name},
+        commit=False,
+    )
+    evaluate_automations_for_event(
+        db=db,
+        trigger_type=TRIGGER_LEAD_CREATED,
+        business_id=business.id,
         commit=False,
     )
 

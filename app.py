@@ -22,6 +22,7 @@ from api.tags import router as tag_router, business_tags_router
 from api.notes import router as notes_router
 from api.activities import router as activities_router
 from api.follow_ups import router as follow_ups_router
+from api.automations import router as automations_router
 from api.scanner import router as scanner_router
 from api.scan_jobs import router as scan_jobs_router
 from api.scrape_jobs import router as scrape_jobs_router
@@ -127,6 +128,10 @@ TAGS_METADATA = [
     {
         "name": "Follow-ups",
         "description": "CRM follow-ups and scheduled reminders for leads.",
+    },
+    {
+        "name": "Email Automations",
+        "description": "Automated email workflows and execution tracking.",
     },
     {
         "name": "System",
@@ -257,6 +262,7 @@ app.include_router(business_tags_router, dependencies=[Depends(verify_admin)])
 app.include_router(notes_router, dependencies=[Depends(verify_admin)])
 app.include_router(activities_router, dependencies=[Depends(verify_admin)])
 app.include_router(follow_ups_router, dependencies=[Depends(verify_admin)])
+app.include_router(automations_router, dependencies=[Depends(verify_admin)])
 app.include_router(scrape_router, dependencies=[Depends(verify_admin)])
 app.include_router(scanner_router, dependencies=[Depends(verify_admin)])
 app.include_router(scan_jobs_router, dependencies=[Depends(verify_admin)])

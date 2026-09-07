@@ -21,6 +21,11 @@ from services.activity_service import (
     ACTIVITY_FOLLOW_UP_UPDATED,
     create_activity,
 )
+from services.email_automation_service import (
+    TRIGGER_FOLLOW_UP_DUE,
+    TRIGGER_FOLLOW_UP_OVERDUE,
+    evaluate_automations_for_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +124,14 @@ def create_follow_up(
         title=f"Follow-up scheduled: {cleaned_title}",
         description=f"Priority: {cleaned_priority.capitalize()}" + (f" | Due: {due_at.strftime('%Y-%m-%d %H:%M UTC')}" if due_at else ""),
         metadata=meta,
+        commit=False,
+    )
+
+    evaluate_automations_for_event(
+        db=db,
+        trigger_type=TRIGGER_FOLLOW_UP_DUE,
+        business_id=business_id,
+        follow_up_id=follow_up.id,
         commit=False,
     )
 

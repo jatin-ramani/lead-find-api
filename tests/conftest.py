@@ -30,8 +30,11 @@ from database.models import (  # noqa: E402
     AdminSession,
     Business,
     BusinessActivity,
+    BusinessFollowUp,
     BusinessNote,
     BusinessTag,
+    EmailAutomation,
+    EmailAutomationExecution,
     ScanJob,
     ScrapeJob,
     Tag,
@@ -88,8 +91,21 @@ def clean_tables(_schema):
     session = SessionLocal()
 
     try:
-        # Children first: website_data, business_notes, business_activities, business_tags reference businesses / tags.
-        for model in (AdminSession, BusinessActivity, BusinessNote, BusinessTag, Tag, WebsiteData, ScrapeJob, ScanJob, Business):
+        # Children first to respect foreign key constraints
+        for model in (
+            AdminSession,
+            BusinessTag,
+            EmailAutomationExecution,
+            EmailAutomation,
+            BusinessFollowUp,
+            BusinessActivity,
+            BusinessNote,
+            WebsiteData,
+            ScrapeJob,
+            ScanJob,
+            Tag,
+            Business,
+        ):
             session.query(model).delete()
 
         session.commit()

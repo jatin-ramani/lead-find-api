@@ -89,6 +89,15 @@ class Business(Base):
         order_by="asc(BusinessFollowUp.due_at), desc(BusinessFollowUp.id)",
     )
 
+    # Email Automation Executions
+    email_executions = relationship(
+        "EmailAutomationExecution",
+        back_populates="business",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="desc(EmailAutomationExecution.created_at)",
+    )
+
 
 class BusinessNote(Base):
     __tablename__ = "business_notes"
@@ -146,6 +155,98 @@ class BusinessFollowUp(Base):
     )
 
     business = relationship("Business", back_populates="follow_ups")
+    email_executions = relationship(
+        "EmailAutomationExecution",
+        back_populates="follow_up",
+        passive_deletes=True,
+    )
+
+
+class EmailAutomation(Base):
+    __tablename__ = "email_automations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False, index=True)
+    trigger_type = Column(String(50), nullable=False, index=True)  # lead_created, lead_status_changed, follow_up_due, follow_up_overdue
+    subject_template = Column(String(255), nullable=False)
+    body_template = Column(Text, nullable=False)
+    delay_minutes = Column(Integer, default=0, nullable=False)
+    max_retries = Column(Integer, default=3, nullable=False)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    executions = relationship(
+        "EmailAutomationExecution",
+        back_populates="automation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="desc(EmailAutomationExecution.created_at)",
+    )
+
+
+class EmailAutomationExecution(Base):
+    __tablename__ = "email_automation_executions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    automation_id = Column(
+        Integer,
+        ForeignKey("email_automations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    business_id = Column(
+        Integer,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    follow_up_id = Column(
+        Integer,
+        ForeignKey("business_follow_ups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    trigger_event = Column(String(50), nullable=False, index=True)
+    trigger_key = Column(String(255), nullable=False, unique=True, index=True)
+    status = Column(String(30), default="scheduled", nullable=False, index=True)  # scheduled, processing, sent, failed, cancelled
+    recipient_email = Column(String(255), nullable=False)
+    subject = Column(String(255), nullable=False)
+    body_rendered = Column(Text, nullable=False)
+    scheduled_at = Column(DateTime, nullable=False, index=True)
+    attempted_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+    error_message = Column(Text, nullable=True)
+    provider_message_id = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    automation = relationship("EmailAutomation", back_populates="executions")
+    business = relationship("Business", back_populates="email_executions")
+    follow_up = relationship("BusinessFollowUp", back_populates="email_executions")
+
 
 
 class BusinessActivity(Base):
