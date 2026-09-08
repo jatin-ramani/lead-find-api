@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0016"
+        assert revision == "0017"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
@@ -99,6 +99,14 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
         assert "email_campaigns" in inspector.get_table_names()
         assert "email_campaign_recipients" in inspector.get_table_names()
         assert "gmail_oauth_credentials" in inspector.get_table_names()
+
+        # Verify default templates were seeded by migration 0017
+        with engine.connect() as connection:
+            count = connection.execute(
+                text("SELECT COUNT(*) FROM email_templates WHERE name LIKE 'Grade %'")
+            ).scalar_one()
+            assert count == 4
+
         assert inspector.get_pk_constraint("admin_sessions")["constrained_columns"] == [
             "token_hash"
         ]
@@ -137,14 +145,14 @@ def test_migration_0016_downgrade_and_reupgrade(monkeypatch):
         monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
         monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
 
-        # 1. Upgrade to 0016 (head)
+        # 1. Upgrade to 0017 (head)
         migrations.run_startup_migrations()
 
         engine = create_engine(database_url)
         inspector = inspect(engine)
         assert "gmail_oauth_credentials" in inspector.get_table_names()
 
-        # 2. Downgrade from 0016 to 0015
+        # 2. Downgrade from 0017 to 0015
         alembic_cfg = Config()
         alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
         alembic_cfg.set_main_option("sqlalchemy.url", database_url)
@@ -156,13 +164,68 @@ def test_migration_0016_downgrade_and_reupgrade(monkeypatch):
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             assert rev == "0015"
 
-        # 3. Re-upgrade from 0015 to 0016
-        command.upgrade(alembic_cfg, "0016")
+        # 3. Re-upgrade from 0015 to 0017
+        command.upgrade(alembic_cfg, "0017")
         inspector = inspect(engine)
         assert "gmail_oauth_credentials" in inspector.get_table_names()
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0017"
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0017_downgrade_and_reupgrade(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, text
+
+    database_path = migrations.BACKEND_DIR / "downgrade_0017_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        migrations.run_startup_migrations()
+
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM email_templates WHERE name LIKE 'Grade %'")
+            ).scalar_one()
+            assert count == 4
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Downgrade to 0016
+        command.downgrade(alembic_cfg, "0016")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             assert rev == "0016"
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM email_templates WHERE name LIKE 'Grade %'")
+            ).scalar_one()
+            assert count == 0
+
+        # Re-upgrade to 0017
+        command.upgrade(alembic_cfg, "0017")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0017"
+            count = conn.execute(
+                text("SELECT COUNT(*) FROM email_templates WHERE name LIKE 'Grade %'")
+            ).scalar_one()
+            assert count == 4
 
     finally:
         if engine is not None:

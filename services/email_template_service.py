@@ -16,6 +16,135 @@ from services.template_engine import render_template
 
 logger = logging.getLogger(__name__)
 
+# Deterministic default email templates for Lead Grades A, B, C, D
+DEFAULT_GRADE_TEMPLATES = [
+    {
+        "grade": "A",
+        "name": "Grade A — High Priority Lead",
+        "description": "Default outreach template for Grade A (High Priority) leads.",
+        "subject": "Partnership opportunity for {{business_name}}",
+        "body": (
+            "<p>Hi {{contact_name}},</p>\n\n"
+            "<p>I came across {{business_name}} while researching top-performing businesses in your area. "
+            "Given your strong track record and positive market presence, I wanted to reach out directly.</p>\n\n"
+            "<p>We specialize in helping established companies optimize their digital customer acquisition and "
+            "improve local conversion rates.</p>\n\n"
+            "<p>Would you be open to a brief 10-minute conversation this week to see how we could help "
+            "{{business_name}} accelerate its growth?</p>\n\n"
+            "<p>Best regards,<br>Growth &amp; Partnerships Team</p>"
+        ),
+    },
+    {
+        "grade": "B",
+        "name": "Grade B — Good Lead",
+        "description": "Default outreach template for Grade B (Good) leads.",
+        "subject": "Growth ideas for {{business_name}}",
+        "body": (
+            "<p>Hi {{contact_name}},</p>\n\n"
+            "<p>I recently reviewed {{business_name}} and noticed several solid strengths in your current offering. "
+            "With a few targeted digital optimizations, there is a clear opportunity to increase your inbound inquiries.</p>\n\n"
+            "<p>We work with businesses to streamline their online presence and capture high-intent local demand.</p>\n\n"
+            "<p>Would you be open to a quick call sometime this week to discuss a few practical recommendations for "
+            "{{business_name}}?</p>\n\n"
+            "<p>Best regards,<br>Client Strategy Team</p>"
+        ),
+    },
+    {
+        "grade": "C",
+        "name": "Grade C — Potential Lead",
+        "description": "Default outreach template for Grade C (Potential) leads.",
+        "subject": "Quick question regarding {{business_name}}",
+        "body": (
+            "<p>Hello {{contact_name}},</p>\n\n"
+            "<p>I hope your week is going well. We recently conducted a preliminary digital visibility review "
+            "for businesses in your sector and identified a few quick areas for improvement for {{business_name}}.</p>\n\n"
+            "<p>If you're interested, I'd be happy to share a brief summary of our findings with your team.</p>\n\n"
+            "<p>Let me know if you would like me to send that over.</p>\n\n"
+            "<p>Best regards,<br>Business Development Team</p>"
+        ),
+    },
+    {
+        "grade": "D",
+        "name": "Grade D — Low Priority Lead",
+        "description": "Default outreach template for Grade D (Low Priority) leads.",
+        "subject": "Exploring opportunities for {{business_name}}",
+        "body": (
+            "<p>Hi {{contact_name}},</p>\n\n"
+            "<p>I am reaching out to see if {{business_name}} is currently looking for new ways to expand its "
+            "customer reach and optimize its digital channels.</p>\n\n"
+            "<p>If this is on your roadmap for this quarter, feel free to reply and we can schedule a quick "
+            "introductory chat.</p>\n\n"
+            "<p>Thanks for your time,<br>Outreach Team</p>"
+        ),
+    },
+]
+
+
+def seed_default_templates(db: Session) -> List[EmailTemplate]:
+    """
+    Ensure the 4 deterministic default grade templates (Grade A, B, C, D) exist in the database.
+    Idempotent:
+    - If an active template for a grade already exists, it is preserved without re-creating.
+    - Never creates duplicates.
+    """
+    created: List[EmailTemplate] = []
+    now = datetime.now(timezone.utc)
+
+    for item in DEFAULT_GRADE_TEMPLATES:
+        grade = item["grade"]
+        existing = (
+            db.query(EmailTemplate)
+            .filter(
+                EmailTemplate.is_archived.is_(False),
+                or_(
+                    EmailTemplate.name == item["name"],
+                    EmailTemplate.name.ilike(f"Grade {grade} — %"),
+                    EmailTemplate.name.ilike(f"Grade {grade} - %"),
+                    EmailTemplate.name.ilike(f"%(Grade {grade})%"),
+                ),
+            )
+            .first()
+        )
+        if not existing:
+            tpl = EmailTemplate(
+                name=item["name"],
+                description=item["description"],
+                subject=item["subject"],
+                body=item["body"],
+                is_archived=False,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(tpl)
+            created.append(tpl)
+
+    if created:
+        db.commit()
+        for tpl in created:
+            db.refresh(tpl)
+
+    return created
+
+
+def get_default_grade_template(db: Session, grade: str) -> Optional[EmailTemplate]:
+    """Fetch the active template associated with a specific lead grade (A, B, C, D)."""
+    norm_grade = grade.upper().strip()
+    return (
+        db.query(EmailTemplate)
+        .filter(
+            EmailTemplate.is_archived.is_(False),
+            or_(
+                EmailTemplate.name.ilike(f"Grade {norm_grade} — %"),
+                EmailTemplate.name.ilike(f"Grade {norm_grade} - %"),
+                EmailTemplate.name.ilike(f"%(Grade {norm_grade})%"),
+                EmailTemplate.name.ilike(f"%Grade {norm_grade}%"),
+                EmailTemplate.description.ilike(f"%Grade {norm_grade}%"),
+            ),
+        )
+        .order_by(EmailTemplate.id.asc())
+        .first()
+    )
+
 
 def create_template(
     db: Session,
