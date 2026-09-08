@@ -517,7 +517,7 @@ class TestPostgresSupportIsActuallyShipped:
         dialect, driver, paths, docs = result.stdout.split()
 
         assert (dialect, driver) == ("postgresql", "psycopg")
-        assert int(paths) == 50, "the API surface differs under PostgreSQL"
+        assert int(paths) == 75, "the API surface differs under PostgreSQL"
         assert docs == "None", "docs must stay hidden in production"
 
 

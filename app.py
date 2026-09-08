@@ -23,6 +23,9 @@ from api.notes import router as notes_router
 from api.activities import router as activities_router
 from api.follow_ups import router as follow_ups_router
 from api.automations import router as automations_router
+from api.templates import router as templates_router
+from api.campaigns import router as campaigns_router
+from api.gmail_auth import router as gmail_auth_router
 from api.scanner import router as scanner_router
 from api.scan_jobs import router as scan_jobs_router
 from api.scrape_jobs import router as scrape_jobs_router
@@ -254,6 +257,7 @@ register_exception_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(system_router)
+app.include_router(gmail_auth_router)
 
 # Protected routers requiring administrative authentication
 app.include_router(business_router, dependencies=[Depends(verify_admin)])
@@ -263,6 +267,8 @@ app.include_router(notes_router, dependencies=[Depends(verify_admin)])
 app.include_router(activities_router, dependencies=[Depends(verify_admin)])
 app.include_router(follow_ups_router, dependencies=[Depends(verify_admin)])
 app.include_router(automations_router, dependencies=[Depends(verify_admin)])
+app.include_router(templates_router, dependencies=[Depends(verify_admin)])
+app.include_router(campaigns_router, dependencies=[Depends(verify_admin)])
 app.include_router(scrape_router, dependencies=[Depends(verify_admin)])
 app.include_router(scanner_router, dependencies=[Depends(verify_admin)])
 app.include_router(scan_jobs_router, dependencies=[Depends(verify_admin)])

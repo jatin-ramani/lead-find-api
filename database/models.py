@@ -98,6 +98,135 @@ class Business(Base):
         order_by="desc(EmailAutomationExecution.created_at)",
     )
 
+    # Email Campaign Recipient Executions
+    campaign_recipients = relationship(
+        "EmailCampaignRecipient",
+        back_populates="business",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="desc(EmailCampaignRecipient.created_at)",
+    )
+
+
+class EmailTemplate(Base):
+    __tablename__ = "email_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    subject = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    is_archived = Column(Boolean, default=False, nullable=False, index=True)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    campaigns = relationship(
+        "EmailCampaign",
+        back_populates="template",
+        passive_deletes="all",
+    )
+
+
+class EmailCampaign(Base):
+    __tablename__ = "email_campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    template_id = Column(
+        Integer,
+        ForeignKey("email_templates.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(String(30), default="draft", nullable=False, index=True)  # draft, scheduled, running, completed, failed, cancelled
+    filter_criteria_json = Column("filter_criteria", Text, default="{}", nullable=False)
+    recipient_count = Column(Integer, default=0, nullable=False)
+    sent_count = Column(Integer, default=0, nullable=False)
+    failed_count = Column(Integer, default=0, nullable=False)
+    scheduled_at = Column(DateTime, nullable=True, index=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    snapshot_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    template = relationship("EmailTemplate", back_populates="campaigns")
+    recipients = relationship(
+        "EmailCampaignRecipient",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="asc(EmailCampaignRecipient.id)",
+    )
+
+
+class EmailCampaignRecipient(Base):
+    __tablename__ = "email_campaign_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(
+        Integer,
+        ForeignKey("email_campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    business_id = Column(
+        Integer,
+        ForeignKey("businesses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    recipient_email = Column(String(255), nullable=False)
+    recipient_name = Column(String(255), nullable=True)
+    status = Column(String(30), default="pending", nullable=False, index=True)  # pending, processing, sent, failed, cancelled
+    attempt_count = Column(Integer, default=0, nullable=False)
+    error_message = Column(Text, nullable=True)
+    provider_message_id = Column(String(255), nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    attempted_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    campaign = relationship("EmailCampaign", back_populates="recipients")
+    business = relationship("Business", back_populates="campaign_recipients")
+
+    __table_args__ = (
+        Index("uq_campaign_business", "campaign_id", "business_id", unique=True),
+        Index("ix_campaign_recipient_status", "campaign_id", "status"),
+    )
+
+
 
 class BusinessNote(Base):
     __tablename__ = "business_notes"
@@ -435,3 +564,30 @@ class ScrapeJob(Base):
             sqlite_where=text("status IN ('Pending', 'Running')"),
         ),
     )
+
+
+class GmailOAuthCredential(Base):
+    __tablename__ = "gmail_oauth_credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_address = Column(String(255), nullable=False, unique=True, index=True)
+    encrypted_access_token = Column(Text, nullable=False)
+    encrypted_refresh_token = Column(Text, nullable=False)
+    token_expiry = Column(DateTime, nullable=False, index=True)
+    scopes = Column(String(500), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    daily_send_count = Column(Integer, default=0, nullable=False)
+    daily_send_reset_date = Column(String(10), nullable=False)  # 'YYYY-MM-DD' (UTC)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+

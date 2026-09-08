@@ -90,11 +90,15 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0014"
+        assert revision == "0016"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
         assert "email_automation_executions" in inspector.get_table_names()
+        assert "email_templates" in inspector.get_table_names()
+        assert "email_campaigns" in inspector.get_table_names()
+        assert "email_campaign_recipients" in inspector.get_table_names()
+        assert "gmail_oauth_credentials" in inspector.get_table_names()
         assert inspector.get_pk_constraint("admin_sessions")["constrained_columns"] == [
             "token_hash"
         ]
@@ -117,13 +121,13 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
         database_path.unlink(missing_ok=True)
 
 
-def test_migration_0014_downgrade_and_reupgrade(monkeypatch):
+def test_migration_0016_downgrade_and_reupgrade(monkeypatch):
     from alembic.config import Config
     from alembic import command
     from pydantic import SecretStr
     from sqlalchemy import create_engine, inspect, text
 
-    database_path = migrations.BACKEND_DIR / "downgrade_0014_test.db"
+    database_path = migrations.BACKEND_DIR / "downgrade_0016_test.db"
     database_path.unlink(missing_ok=True)
     database_url = f"sqlite:///{database_path.as_posix()}"
     engine = None
@@ -133,35 +137,32 @@ def test_migration_0014_downgrade_and_reupgrade(monkeypatch):
         monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
         monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
 
-        # 1. Upgrade to 0014 (head)
+        # 1. Upgrade to 0016 (head)
         migrations.run_startup_migrations()
 
         engine = create_engine(database_url)
         inspector = inspect(engine)
-        assert "email_automations" in inspector.get_table_names()
-        assert "email_automation_executions" in inspector.get_table_names()
+        assert "gmail_oauth_credentials" in inspector.get_table_names()
 
-        # 2. Downgrade from 0014 to 0013
+        # 2. Downgrade from 0016 to 0015
         alembic_cfg = Config()
         alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
         alembic_cfg.set_main_option("sqlalchemy.url", database_url)
-        command.downgrade(alembic_cfg, "0013")
+        command.downgrade(alembic_cfg, "0015")
 
         inspector = inspect(engine)
-        assert "email_automations" not in inspector.get_table_names()
-        assert "email_automation_executions" not in inspector.get_table_names()
+        assert "gmail_oauth_credentials" not in inspector.get_table_names()
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0013"
+            assert rev == "0015"
 
-        # 3. Re-upgrade from 0013 to 0014
-        command.upgrade(alembic_cfg, "0014")
+        # 3. Re-upgrade from 0015 to 0016
+        command.upgrade(alembic_cfg, "0016")
         inspector = inspect(engine)
-        assert "email_automations" in inspector.get_table_names()
-        assert "email_automation_executions" in inspector.get_table_names()
+        assert "gmail_oauth_credentials" in inspector.get_table_names()
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0014"
+            assert rev == "0016"
 
     finally:
         if engine is not None:

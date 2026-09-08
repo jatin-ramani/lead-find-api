@@ -35,6 +35,10 @@ from database.models import (  # noqa: E402
     BusinessTag,
     EmailAutomation,
     EmailAutomationExecution,
+    EmailCampaign,
+    EmailCampaignRecipient,
+    EmailTemplate,
+    GmailOAuthCredential,
     ScanJob,
     ScrapeJob,
     Tag,
@@ -95,6 +99,10 @@ def clean_tables(_schema):
         for model in (
             AdminSession,
             BusinessTag,
+            GmailOAuthCredential,
+            EmailCampaignRecipient,
+            EmailCampaign,
+            EmailTemplate,
             EmailAutomationExecution,
             EmailAutomation,
             BusinessFollowUp,
@@ -111,6 +119,7 @@ def clean_tables(_schema):
         session.commit()
     finally:
         session.close()
+
 
 
 @pytest.fixture

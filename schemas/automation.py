@@ -184,3 +184,142 @@ class ProcessDueResponse(BaseModel):
     failed: int = 0
     retried: int = 0
     cancelled: int = 0
+
+
+# ============================================================================
+# City-First Grade Automation Schemas
+# ============================================================================
+
+class CityStatItem(BaseModel):
+    city: str
+    total_leads: int
+    eligible_leads: int
+    ineligible_leads: int
+
+
+class CityStatListResponse(BaseModel):
+    success: bool = True
+    items: List[CityStatItem]
+
+
+class GradeStatDetail(BaseModel):
+    total: int
+    eligible: int
+    ineligible: int
+
+
+class CityGradeStatsResponse(BaseModel):
+    success: bool = True
+    city: str
+    total_leads: int
+    email_eligible_leads: int
+    ineligible_leads: int
+    grades: Dict[str, GradeStatDetail]
+
+
+class AIGenerateTemplatesRequest(BaseModel):
+    city: str = Field(..., min_length=1)
+    industry: Optional[str] = None
+
+
+class AIGradeTemplateItem(BaseModel):
+    subject: str
+    body: str
+    rationale: Optional[str] = None
+
+
+class AIGradeTemplatesResponse(BaseModel):
+    success: bool = True
+    city: str
+    data: Dict[str, AIGradeTemplateItem]
+
+
+class AISingleTemplateRequest(BaseModel):
+    grade: str = Field(..., min_length=1, max_length=1)
+    city: str = Field(..., min_length=1)
+    industry: Optional[str] = None
+
+
+class AISingleTemplateResponse(BaseModel):
+    success: bool = True
+    grade: str
+    data: AIGradeTemplateItem
+
+
+class GradeTemplatePayload(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=500)
+    body: str = Field(..., min_length=1)
+    name: Optional[str] = None
+
+
+class CityAutomationStartRequest(BaseModel):
+    city: str = Field(..., min_length=1)
+    templates: Dict[str, GradeTemplatePayload]
+    name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+
+class GradeBreakdownStats(BaseModel):
+    total: int = 0
+    sent: int = 0
+    failed: int = 0
+    pending: int = 0
+    cancelled: int = 0
+
+
+class RecipientExecutionLogItem(BaseModel):
+    id: int
+    business_id: int
+    business_name: str
+    recipient_email: str
+    lead_grade: str
+    status: str
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    attempted_at: Optional[datetime] = None
+
+
+class CityAutomationReportData(BaseModel):
+    id: int
+    name: str
+    city: str
+    status: str
+    recipient_count: int
+    sent_count: int
+    failed_count: int
+    pending_count: int
+    cancelled_count: int
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    grade_breakdown: Dict[str, GradeBreakdownStats]
+    recipient_logs: List[RecipientExecutionLogItem] = []
+
+
+class CityAutomationReportResponse(BaseModel):
+    success: bool = True
+    data: CityAutomationReportData
+    message: Optional[str] = None
+
+
+class CityAutomationRunItem(BaseModel):
+    id: int
+    name: str
+    city: str
+    status: str
+    recipient_count: int
+    sent_count: int
+    failed_count: int
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class CityAutomationListResponse(BaseModel):
+    success: bool = True
+    items: List[CityAutomationRunItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+

@@ -167,9 +167,27 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Email Automation & Provider
     # ------------------------------------------------------------------
-    EMAIL_PROVIDER: Literal["mock", "resend"] = "mock"
+    EMAIL_PROVIDER: Literal["mock", "gmail", "resend"] = "mock"
     RESEND_API_KEY: Optional[SecretStr] = None
     RESEND_FROM_EMAIL: str = "noreply@leadfinder.local"
+
+    # Gmail API OAuth 2.0 & Quota Settings
+    GMAIL_CLIENT_ID: Optional[SecretStr] = None
+    GMAIL_CLIENT_SECRET: Optional[SecretStr] = None
+    GMAIL_REDIRECT_URI: Optional[str] = None
+    GMAIL_TOKEN_ENCRYPTION_KEY: Optional[SecretStr] = None
+    EMAIL_DAILY_QUOTA_LIMIT: int = Field(default=400, ge=1)
+
+    # ------------------------------------------------------------------
+    # AI Template Generation Provider
+    # ------------------------------------------------------------------
+    AI_PROVIDER: Literal["mock", "openai", "anthropic", "gemini"] = "mock"
+    OPENAI_API_KEY: Optional[SecretStr] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    ANTHROPIC_API_KEY: Optional[SecretStr] = None
+    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+    GEMINI_API_KEY: Optional[SecretStr] = None
+    GEMINI_MODEL: str = "gemini-1.5-flash"
 
     # ------------------------------------------------------------------
     # Pagination
@@ -231,6 +249,64 @@ class Settings(BaseSettings):
     @property
     def has_resend_key(self) -> bool:
         return bool(self.resend_api_key)
+
+    @property
+    def gmail_client_id(self) -> str:
+        if self.GMAIL_CLIENT_ID is None:
+            return ""
+        if isinstance(self.GMAIL_CLIENT_ID, str):
+            return self.GMAIL_CLIENT_ID
+        return self.GMAIL_CLIENT_ID.get_secret_value()
+
+    @property
+    def gmail_client_secret(self) -> str:
+        if self.GMAIL_CLIENT_SECRET is None:
+            return ""
+        if isinstance(self.GMAIL_CLIENT_SECRET, str):
+            return self.GMAIL_CLIENT_SECRET
+        return self.GMAIL_CLIENT_SECRET.get_secret_value()
+
+    @property
+    def gmail_token_encryption_key(self) -> str:
+        if self.GMAIL_TOKEN_ENCRYPTION_KEY is None:
+            return ""
+        if isinstance(self.GMAIL_TOKEN_ENCRYPTION_KEY, str):
+            return self.GMAIL_TOKEN_ENCRYPTION_KEY
+        return self.GMAIL_TOKEN_ENCRYPTION_KEY.get_secret_value()
+
+    @property
+    def has_gmail_credentials(self) -> bool:
+        return bool(self.gmail_client_id and self.gmail_client_secret)
+
+
+
+    @property
+    def openai_api_key(self) -> str:
+        if self.OPENAI_API_KEY is None:
+            return ""
+        return self.OPENAI_API_KEY.get_secret_value()
+
+    @property
+    def anthropic_api_key(self) -> str:
+        if self.ANTHROPIC_API_KEY is None:
+            return ""
+        return self.ANTHROPIC_API_KEY.get_secret_value()
+
+    @property
+    def gemini_api_key(self) -> str:
+        if self.GEMINI_API_KEY is None:
+            return ""
+        return self.GEMINI_API_KEY.get_secret_value()
+
+    @property
+    def has_ai_key(self) -> bool:
+        if self.AI_PROVIDER == "openai":
+            return bool(self.openai_api_key)
+        elif self.AI_PROVIDER == "anthropic":
+            return bool(self.anthropic_api_key)
+        elif self.AI_PROVIDER == "gemini":
+            return bool(self.gemini_api_key)
+        return True
 
     # ------------------------------------------------------------------
     # Derived helpers
