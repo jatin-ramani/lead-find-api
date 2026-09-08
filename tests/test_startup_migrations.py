@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0017"
+        assert revision == "0018"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
@@ -265,12 +265,12 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
                 )
             )
 
-        # 2. Upgrade from 0007 all the way to 0017
-        command.upgrade(alembic_cfg, "0017")
+        # 2. Upgrade from 0007 all the way to 0018
+        command.upgrade(alembic_cfg, "0018")
 
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0017"
+            assert rev == "0018"
 
             row = conn.execute(
                 text("SELECT name, is_favorite, lead_score, lead_grade FROM businesses WHERE place_id = 'place_acme_1'")
@@ -280,6 +280,61 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
             assert row["lead_score"] == 85
             assert row["lead_grade"] == "A"
             assert row["is_favorite"] is False or row["is_favorite"] == 0
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0018_downgrade_and_reupgrade(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, text
+
+    database_path = migrations.BACKEND_DIR / "downgrade_0018_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        migrations.run_startup_migrations()
+
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            grade_a = conn.execute(
+                text("SELECT subject FROM email_templates WHERE name = 'Grade A — High Priority Lead'")
+            ).scalar_one()
+            assert grade_a == "Introduction regarding {{business_name}}"
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Downgrade to 0017
+        command.downgrade(alembic_cfg, "0017")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0017"
+            grade_a_old = conn.execute(
+                text("SELECT subject FROM email_templates WHERE name = 'Grade A — High Priority Lead'")
+            ).scalar_one()
+            assert grade_a_old == "Partnership opportunity for {{business_name}}"
+
+        # Re-upgrade to 0018
+        command.upgrade(alembic_cfg, "0018")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0018"
+            grade_a_new = conn.execute(
+                text("SELECT subject FROM email_templates WHERE name = 'Grade A — High Priority Lead'")
+            ).scalar_one()
+            assert grade_a_new == "Introduction regarding {{business_name}}"
 
     finally:
         if engine is not None:

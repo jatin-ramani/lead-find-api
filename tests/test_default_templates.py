@@ -12,6 +12,7 @@ Covers:
 - User template preservation (no overwriting or deletion)
 """
 
+import re
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -178,10 +179,10 @@ def test_gmail_test_send_resolves_seeded_grade_templates(client: TestClient, db:
 
     # Verify subjects matched the seeded templates
     subjects = [r["subject"] for r in data["results"]]
-    assert any("Partnership opportunity" in s for s in subjects)  # Grade A
-    assert any("Growth ideas" in s for s in subjects)             # Grade B
-    assert any("Quick question" in s for s in subjects)          # Grade C
-    assert any("Exploring opportunities" in s for s in subjects) # Grade D
+    assert any("Introduction regarding" in s for s in subjects)  # Grade A
+    assert any("Connecting with" in s for s in subjects)         # Grade B
+    assert any("Quick question for" in s for s in subjects)      # Grade C
+    assert any("Inquiry for" in s for s in subjects)             # Grade D
 
 
 def test_templates_api_lists_seeded_templates(client: TestClient, db: Session):
@@ -196,3 +197,34 @@ def test_templates_api_lists_seeded_templates(client: TestClient, db: Session):
     assert data["success"] is True
     assert data["total"] == 4
     assert len(data["items"]) == 4
+
+
+def test_default_templates_deliverability_and_honest_claims():
+    """Verify default templates do not contain fabricated claims, fake reviews, or [TEST] tags."""
+    fabricated_phrases = [
+        "top-performing",
+        "recently reviewed",
+        "conducted a preliminary",
+        "visibility review",
+        "guarantee",
+        "limited time",
+        "act now",
+        "[test]",
+    ]
+
+    for item in DEFAULT_GRADE_TEMPLATES:
+        # 1. No [TEST] in stored subject
+        assert "[test]" not in item["subject"].lower(), f"Subject contains test tag: {item['subject']}"
+
+        # 2. No fabricated claims or spam triggers
+        body_lower = item["body"].lower()
+        subject_lower = item["subject"].lower()
+        for phrase in fabricated_phrases:
+            assert phrase not in body_lower, f"Template '{item['name']}' body contains spammy/fabricated phrase '{phrase}'"
+            assert phrase not in subject_lower, f"Template '{item['name']}' subject contains spammy/fabricated phrase '{phrase}'"
+
+        # 3. Conciseness check (word count between 30 and 150 words)
+        words = re.findall(r"\b\w+\b", re.sub(r"<[^>]+>", " ", item["body"]))
+        word_count = len(words)
+        assert 30 <= word_count <= 150, f"Template '{item['name']}' word count ({word_count}) not in 30-150 range"
+
