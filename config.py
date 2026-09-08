@@ -124,8 +124,12 @@ class Settings(BaseSettings):
     RUN_MIGRATIONS: bool = True
 
     # ------------------------------------------------------------------
-    # CORS
+    # Frontend Base URL & CORS
     # ------------------------------------------------------------------
+    FRONTEND_URL: Optional[str] = Field(
+        default=None,
+        description="Base URL of the frontend application for OAuth redirects.",
+    )
     CORS_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -326,6 +330,23 @@ class Settings(BaseSettings):
     @property
     def redoc_url(self) -> Optional[str]:
         return None if (self.is_production and not self.DEBUG) else "/redoc"
+
+    @property
+    def frontend_base_url(self) -> str:
+        """Base URL of the frontend application for OAuth redirects."""
+        if self.FRONTEND_URL and self.FRONTEND_URL.strip():
+            return self.FRONTEND_URL.strip().rstrip("/")
+        # In production, check CORS_ORIGINS for a non-localhost origin
+        if self.is_production:
+            for origin in self.CORS_ORIGINS:
+                clean = origin.strip().rstrip("/")
+                if clean and clean != "*" and "localhost" not in clean and "127.0.0.1" not in clean:
+                    return clean
+        for origin in self.CORS_ORIGINS:
+            clean = origin.strip().rstrip("/")
+            if clean and clean != "*":
+                return clean
+        return "http://localhost:3000"
 
     # ------------------------------------------------------------------
     # Validation

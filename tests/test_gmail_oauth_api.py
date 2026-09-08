@@ -74,20 +74,33 @@ def test_gmail_auth_url_generation(client: TestClient, monkeypatch):
 
 
 def test_gmail_callback_csrf_validation_failure(unauth_client: TestClient):
-    resp = unauth_client.get("/integrations/gmail/callback?code=mock_code&state=invalid_csrf_state")
-    assert resp.status_code == 400
-    assert "CSRF validation failed" in resp.json()["message"]
+    resp = unauth_client.get(
+        "/integrations/gmail/callback?code=mock_code&state=invalid_csrf_state",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert "/automations" in location
+    assert "gmail_error=" in location
+    assert "CSRF+validation+failed" in location or "CSRF%20validation%20failed" in location or "CSRF" in location
 
 
 def test_gmail_callback_google_error_param(unauth_client: TestClient):
-    resp = unauth_client.get("/integrations/gmail/callback?error=access_denied")
-    assert resp.status_code == 400
-    assert "Google Authorization Failed" in resp.text
+    resp = unauth_client.get(
+        "/integrations/gmail/callback?error=access_denied",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert "/automations" in location
+    assert "gmail_error=" in location
+    assert "denied" in location
 
 
 def test_gmail_callback_success(unauth_client: TestClient, db: Session, monkeypatch):
     monkeypatch.setattr(settings, "GMAIL_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
     monkeypatch.setattr(settings, "GMAIL_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://lead-finder.onrender.com")
 
     state = generate_oauth_state()
 
@@ -116,15 +129,53 @@ def test_gmail_callback_success(unauth_client: TestClient, db: Session, monkeypa
         return MagicMock(status_code=404)
 
     with patch("requests.post", side_effect=mock_requests_post), patch("requests.get", side_effect=mock_requests_get):
-        resp = unauth_client.get(f"/integrations/gmail/callback?code=mock_auth_code_123&state={state}")
-        assert resp.status_code == 200
-        assert "Gmail Connected Successfully" in resp.text
-        assert "verified.user@gmail.com" in resp.text
+        resp = unauth_client.get(
+            f"/integrations/gmail/callback?code=mock_auth_code_123&state={state}",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        location = resp.headers["location"]
+        assert location.startswith("https://lead-finder.onrender.com/automations")
+        assert "gmail_connected=true" in location
+        assert "email=verified.user%40gmail.com" in location
 
         # Verify persisted in database
         cred = db.query(GmailOAuthCredential).filter(GmailOAuthCredential.email_address == "verified.user@gmail.com").first()
         assert cred is not None
         assert cred.is_active is True
+
+
+def test_gmail_callback_default_local_frontend_redirect(unauth_client: TestClient, db: Session, monkeypatch):
+    monkeypatch.setattr(settings, "GMAIL_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
+    monkeypatch.setattr(settings, "GMAIL_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setattr(settings, "FRONTEND_URL", None)
+
+    state = generate_oauth_state()
+
+    mock_token_resp = MagicMock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {
+        "access_token": "ya29.mock_oauth_access_token",
+        "refresh_token": "1//mock_oauth_refresh_token",
+        "expires_in": 3600,
+    }
+
+    mock_userinfo_resp = MagicMock()
+    mock_userinfo_resp.status_code = 200
+    mock_userinfo_resp.json.return_value = {
+        "email": "local.dev@gmail.com",
+    }
+
+    with patch("requests.post", return_value=mock_token_resp), patch("requests.get", return_value=mock_userinfo_resp):
+        resp = unauth_client.get(
+            f"/integrations/gmail/callback?code=mock_auth_code_local&state={state}",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        location = resp.headers["location"]
+        assert location.startswith("http://localhost:3000/automations")
+        assert "gmail_connected=true" in location
+        assert "email=local.dev%40gmail.com" in location
 
 
 def test_gmail_disconnect(client: TestClient, db: Session):

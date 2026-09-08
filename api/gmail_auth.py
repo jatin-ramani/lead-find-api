@@ -122,6 +122,16 @@ def get_gmail_auth_url(
     }
 
 
+def _get_frontend_redirect_url(params: Optional[Dict[str, str]] = None) -> str:
+    """Build redirect URL to frontend /automations page with safe parameters."""
+    base = settings.frontend_base_url.rstrip("/")
+    url = f"{base}/automations"
+    if params:
+        query_string = urllib.parse.urlencode(params)
+        url = f"{url}?{query_string}"
+    return url
+
+
 @router.get(
     "/callback",
     summary="Google OAuth Callback Handler",
@@ -134,28 +144,34 @@ def gmail_oauth_callback(
     error: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
+    # 1. Handle OAuth error response from Google
     if error:
-        logger.warning("Google OAuth callback error: %s", error)
-        return HTMLResponse(
-            content=f"<html><body><h3>Google Authorization Failed</h3><p>{error}</p><script>setTimeout(() => window.close(), 3000);</script></body></html>",
-            status_code=400,
+        logger.warning("Google OAuth callback error parameter: %s", error)
+        safe_msg = "Google authorization was denied or cancelled."
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": safe_msg}),
+            status_code=status.HTTP_302_FOUND,
         )
 
+    # 2. Validate code and state presence
     if not code or not state:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing code or state parameter in authorization response.",
+        logger.warning("OAuth callback missing code or state")
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Missing authorization code or state parameter."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
+    # 3. Validate state token (CSRF prevention)
     if not verify_oauth_state(state):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OAuth state token (CSRF validation failed).",
+        logger.warning("OAuth state verification failed in callback")
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Invalid or expired OAuth state token (CSRF validation failed)."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
     redirect_uri = _get_redirect_uri(request)
 
-    # 1. Exchange code for tokens
+    # 4. Exchange code for tokens
     payload = {
         "code": code,
         "client_id": settings.gmail_client_id,
@@ -168,16 +184,16 @@ def gmail_oauth_callback(
         resp = requests.post(GOOGLE_TOKEN_URL, data=payload, timeout=15)
         if resp.status_code != 200:
             logger.error("Token exchange failed (%d): %s", resp.status_code, resp.text)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to exchange authorization code with Google ({resp.status_code}).",
+            return RedirectResponse(
+                url=_get_frontend_redirect_url({"gmail_error": "Failed to exchange authorization code with Google."}),
+                status_code=status.HTTP_302_FOUND,
             )
         token_data = resp.json()
     except requests.RequestException as e:
         logger.error("Token exchange network error: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Network error communicating with Google OAuth servers.",
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Network error communicating with Google OAuth servers."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
     access_token = token_data.get("access_token")
@@ -185,12 +201,13 @@ def gmail_oauth_callback(
     expires_in = token_data.get("expires_in", 3600)
 
     if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google OAuth response did not contain an access token.",
+        logger.error("Token response missing access_token")
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Google OAuth response did not contain an access token."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
-    # 2. Query user profile to determine authenticated email
+    # 5. Query user profile to determine authenticated email
     try:
         userinfo_resp = requests.get(
             GOOGLE_USERINFO_URL,
@@ -198,25 +215,28 @@ def gmail_oauth_callback(
             timeout=10,
         )
         if userinfo_resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to retrieve authenticated user email from Google.",
+            logger.error("Failed to retrieve user profile from Google: %d", userinfo_resp.status_code)
+            return RedirectResponse(
+                url=_get_frontend_redirect_url({"gmail_error": "Failed to retrieve authorized user email from Google."}),
+                status_code=status.HTTP_302_FOUND,
             )
         userinfo = userinfo_resp.json()
         email_address = userinfo.get("email")
     except requests.RequestException as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Network error retrieving user profile from Google.",
+        logger.error("Network error retrieving user profile: %s", str(e))
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Network error retrieving user profile from Google."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
     if not email_address:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not resolve email address from Google profile.",
+        logger.error("Email address not found in Google profile response")
+        return RedirectResponse(
+            url=_get_frontend_redirect_url({"gmail_error": "Could not resolve email address from Google profile."}),
+            status_code=status.HTTP_302_FOUND,
         )
 
-    # 3. Encrypt and persist tokens in database
+    # 6. Encrypt and persist tokens in database
     now_utc = datetime.now(timezone.utc)
     naive_now = now_utc.replace(tzinfo=None)
     token_expiry = naive_now + timedelta(seconds=int(expires_in))
@@ -236,7 +256,6 @@ def gmail_oauth_callback(
     encrypted_refresh = encrypt_token(refresh_token) if refresh_token else (cred.encrypted_refresh_token if cred else "")
 
     if not encrypted_refresh:
-        # If no refresh token received (e.g. re-auth without prompt=consent), prompt user
         logger.warning("No refresh token received during OAuth callback for %s", email_address)
 
     if cred:
@@ -266,39 +285,12 @@ def gmail_oauth_callback(
     db.commit()
     logger.info("Successfully linked Gmail account: %s", email_address)
 
-    # Return friendly HTML popup close script or JSON
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Gmail Connected</title>
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: #f8fafc; }}
-            .card {{ background: #1e293b; max-width: 420px; margin: 0 auto; padding: 30px; border-radius: 12px; border: 1px solid #334155; }}
-            h2 {{ color: #38bdf8; margin-bottom: 10px; }}
-            p {{ color: #94a3b8; font-size: 14px; line-height: 1.5; }}
-            .badge {{ display: inline-block; padding: 6px 14px; background: #0284c7; color: white; border-radius: 20px; font-weight: 600; margin: 15px 0; }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h2>Gmail Connected Successfully!</h2>
-            <div class="badge">{email_address}</div>
-            <p>Your Gmail account is now authorized for Lead Finder Email Automations with a 400 emails/day limit.</p>
-            <p>This window will close automatically...</p>
-        </div>
-        <script>
-            if (window.opener) {{
-                window.opener.postMessage({{ type: "GMAIL_CONNECTED", email: "{email_address}" }}, "*");
-                setTimeout(() => window.close(), 1500);
-            }} else {{
-                setTimeout(() => {{ window.location.href = "/automations"; }}, 2000);
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+    # 7. Redirect browser to Frontend Automations page
+    target_url = _get_frontend_redirect_url({
+        "gmail_connected": "true",
+        "email": email_address,
+    })
+    return RedirectResponse(url=target_url, status_code=status.HTTP_302_FOUND)
 
 
 @router.post(
