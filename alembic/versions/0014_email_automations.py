@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("enabled", sa.Boolean(), server_default="1", nullable=False),
+        sa.Column("enabled", sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column("trigger_type", sa.String(length=50), nullable=False),
         sa.Column("subject_template", sa.String(length=255), nullable=False),
         sa.Column("body_template", sa.Text(), nullable=False),

@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("subject", sa.String(length=255), nullable=False),
         sa.Column("body", sa.Text(), nullable=False),
-        sa.Column("is_archived", sa.Boolean(), server_default="0", nullable=False),
+        sa.Column("is_archived", sa.Boolean(), server_default=sa.false(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),

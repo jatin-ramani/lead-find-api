@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("encrypted_refresh_token", sa.Text(), nullable=False),
         sa.Column("token_expiry", sa.DateTime(), nullable=False),
         sa.Column("scopes", sa.String(length=500), nullable=False),
-        sa.Column("is_active", sa.Boolean(), server_default="1", nullable=False),
+        sa.Column("is_active", sa.Boolean(), server_default=sa.true(), nullable=False),
         sa.Column("daily_send_count", sa.Integer(), server_default="0", nullable=False),
         sa.Column("daily_send_reset_date", sa.String(length=10), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),

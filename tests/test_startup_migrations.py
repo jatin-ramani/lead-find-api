@@ -231,3 +231,57 @@ def test_migration_0017_downgrade_and_reupgrade(monkeypatch):
         if engine is not None:
             engine.dispose()
         database_path.unlink(missing_ok=True)
+
+
+def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, text
+
+    database_path = migrations.BACKEND_DIR / "upgrade_0007_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", False)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # 1. Upgrade to 0007
+        command.upgrade(alembic_cfg, "0007")
+
+        engine = create_engine(database_url)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO businesses (name, city, category, status, place_id, lead_score, lead_grade) "
+                    "VALUES ('Acme Plumbing', 'San Francisco', 'plumber', 'scraped', 'place_acme_1', 85, 'A')"
+                )
+            )
+
+        # 2. Upgrade from 0007 all the way to 0017
+        command.upgrade(alembic_cfg, "0017")
+
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0017"
+
+            row = conn.execute(
+                text("SELECT name, is_favorite, lead_score, lead_grade FROM businesses WHERE place_id = 'place_acme_1'")
+            ).mappings().one()
+
+            assert row["name"] == "Acme Plumbing"
+            assert row["lead_score"] == 85
+            assert row["lead_grade"] == "A"
+            assert row["is_favorite"] is False or row["is_favorite"] == 0
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)

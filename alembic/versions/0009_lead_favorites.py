@@ -22,7 +22,7 @@ def upgrade() -> None:
             "is_favorite",
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            server_default=sa.false(),
         ),
     )
 
