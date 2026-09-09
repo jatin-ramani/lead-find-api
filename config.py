@@ -181,6 +181,12 @@ class Settings(BaseSettings):
     GMAIL_REDIRECT_URI: Optional[str] = None
     GMAIL_TOKEN_ENCRYPTION_KEY: Optional[SecretStr] = None
     EMAIL_DAILY_QUOTA_LIMIT: int = Field(default=400, ge=1)
+    EMAIL_SENDS_PER_MINUTE: int = Field(
+        default=20,
+        ge=1,
+        le=600,
+        description="Application rate limit throttle for background email dispatch (default: 20/min ~ 3s spacing).",
+    )
 
     # ------------------------------------------------------------------
     # AI Template Generation Provider

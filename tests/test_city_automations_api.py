@@ -186,23 +186,23 @@ class TestCityAutomationEndpoints:
         assert res.status_code == 201
         report = res.json()["data"]
         assert report["city"] == "Pune"
-        assert report["status"] == "completed"
+        assert report["status"] == "running"
         assert report["recipient_count"] == 4  # The 4 with valid emails
-        assert report["sent_count"] == 4
-        assert report["failed_count"] == 0
-        assert report["grade_breakdown"]["A"]["sent"] == 1
-        assert report["grade_breakdown"]["B"]["sent"] == 1
-        assert report["grade_breakdown"]["C"]["sent"] == 1
-        assert report["grade_breakdown"]["D"]["sent"] == 1
 
         campaign_id = report["id"]
 
-        # Check report detail endpoint
+        # Check report detail endpoint (TestClient finishes background tasks synchronously)
         res_report = client.get(f"/automations/runs/{campaign_id}")
         assert res_report.status_code == 200
         data_rep = res_report.json()["data"]
         assert data_rep["id"] == campaign_id
+        assert data_rep["status"] == "completed"
         assert data_rep["sent_count"] == 4
+        assert data_rep["failed_count"] == 0
+        assert data_rep["grade_breakdown"]["A"]["sent"] == 1
+        assert data_rep["grade_breakdown"]["B"]["sent"] == 1
+        assert data_rep["grade_breakdown"]["C"]["sent"] == 1
+        assert data_rep["grade_breakdown"]["D"]["sent"] == 1
         assert len(data_rep["recipient_logs"]) == 4
 
         # Check list runs endpoint

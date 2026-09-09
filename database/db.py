@@ -51,6 +51,9 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 
+from contextlib import contextmanager
+
+
 def get_db():
     db = SessionLocal()
 
@@ -58,3 +61,13 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@contextmanager
+def get_session():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+

@@ -1,7 +1,7 @@
 """FastAPI router for Email Automations and Execution Logs."""
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from database.db import get_db
@@ -36,8 +36,10 @@ from services.city_automation_service import (
     get_city_automation_report,
     get_city_lead_grade_stats,
     list_city_automations,
+    resume_city_automation,
     start_city_automation,
 )
+from services.email_queue_worker import process_campaign_queue
 from services.email_automation_service import (
     count_automations,
     count_executions,
@@ -137,10 +139,11 @@ def generate_single_template(payload: AISingleTemplateRequest):
     response_model=CityAutomationReportResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Start city-first grade email automation",
-    description="Snapshot email-eligible leads in city, assign templates by grade, and dispatch emails.",
+    description="Snapshot email-eligible leads in city, assign templates by grade, and dispatch emails in background.",
 )
 def launch_city_automation(
     payload: CityAutomationStartRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     # Convert templates payload to dict
@@ -161,6 +164,9 @@ def launch_city_automation(
             scheduled_at=payload.scheduled_at,
             execute_now=True,
         )
+        if report and report.get("id") and report.get("status") == "running":
+            background_tasks.add_task(process_campaign_queue, report["id"])
+
         return CityAutomationReportResponse(
             success=True,
             data=report,
@@ -211,6 +217,33 @@ def get_automation_run_report(
         return CityAutomationReportResponse(
             success=True,
             data=report,
+        )
+    except ValueError as e:
+        raise AppError(
+            message=str(e),
+            error=ErrorCode.NOT_FOUND,
+            status_code=404,
+        )
+
+
+@router.post(
+    "/runs/{campaign_id}/resume",
+    response_model=CityAutomationReportResponse,
+    summary="Resume paused automation run",
+    description="Resume a paused automation run and continue queue processing.",
+)
+def resume_automation_run(
+    campaign_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    try:
+        report = resume_city_automation(db, campaign_id)
+        background_tasks.add_task(process_campaign_queue, campaign_id)
+        return CityAutomationReportResponse(
+            success=True,
+            data=report,
+            message="Automation run resumed successfully.",
         )
     except ValueError as e:
         raise AppError(

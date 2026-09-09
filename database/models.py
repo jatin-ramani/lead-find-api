@@ -158,6 +158,7 @@ class EmailCampaign(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     snapshot_at = Column(DateTime, nullable=True)
+    paused_reason = Column(Text, nullable=True)
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
@@ -199,12 +200,13 @@ class EmailCampaignRecipient(Base):
     )
     recipient_email = Column(String(255), nullable=False)
     recipient_name = Column(String(255), nullable=True)
-    status = Column(String(30), default="pending", nullable=False, index=True)  # pending, processing, sent, failed, cancelled
+    status = Column(String(30), default="pending", nullable=False, index=True)  # pending, processing, sent, failed, cancelled, skipped
     attempt_count = Column(Integer, default=0, nullable=False)
     error_message = Column(Text, nullable=True)
     provider_message_id = Column(String(255), nullable=True)
     sent_at = Column(DateTime, nullable=True)
     attempted_at = Column(DateTime, nullable=True)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),

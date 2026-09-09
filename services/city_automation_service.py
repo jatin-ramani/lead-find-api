@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 STATUS_DRAFT = "draft"
 STATUS_SCHEDULED = "scheduled"
 STATUS_RUNNING = "running"
+STATUS_PAUSED = "paused"
 STATUS_COMPLETED = "completed"
+STATUS_COMPLETED_WITH_ERRORS = "completed_with_errors"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
 
@@ -46,6 +48,7 @@ RECIPIENT_PROCESSING = "processing"
 RECIPIENT_SENT = "sent"
 RECIPIENT_FAILED = "failed"
 RECIPIENT_CANCELLED = "cancelled"
+RECIPIENT_SKIPPED = "skipped"
 
 
 # ============================================================================
@@ -311,187 +314,31 @@ def start_city_automation(
             },
         )
 
-    # 4. If immediate execution requested and not scheduled, dispatch now
+    # 4. If immediate execution requested and not scheduled, mark running and trigger queue worker
     if execute_now and not scheduled_at:
-        dispatch_city_automation(db, campaign.id)
+        campaign.status = STATUS_RUNNING
+        campaign.started_at = now
+        db.commit()
+        # Launch background execution task in background thread
+        import asyncio
+        try:
+            from services.email_queue_worker import process_campaign_queue
+            loop = asyncio.get_running_loop()
+            loop.create_task(asyncio.to_thread(process_campaign_queue, campaign.id))
+        except RuntimeError:
+            # If no running loop in current thread, caller/FastAPI BackgroundTasks or direct dispatch will run it
+            pass
 
     return get_city_automation_report(db, campaign.id)
 
 
 def dispatch_city_automation(db: Session, campaign_id: int) -> Dict[str, Any]:
     """
-    Execute batch dispatch for a city grade automation campaign.
-    Renders templates dynamically according to each recipient's business.lead_grade.
+    Execute batch dispatch for a city grade automation campaign via queue worker.
     """
-    campaign = db.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
-    if not campaign:
-        raise ValueError(f"Automation run with ID {campaign_id} not found.")
-
-    if campaign.status in {STATUS_COMPLETED, STATUS_CANCELLED}:
-        return get_city_automation_report(db, campaign.id)
-
-    now = datetime.now(timezone.utc)
-    campaign.status = STATUS_RUNNING
-    campaign.started_at = campaign.started_at or now
-    campaign.updated_at = now
-    db.commit()
-
-    # Parse grade template mappings
-    filters = {}
-    try:
-        filters = json.loads(campaign.filter_criteria_json or "{}")
-    except Exception:
-        pass
-    grade_template_ids = filters.get("grade_templates", {})
-
-    # Preload grade templates
-    grade_templates: Dict[str, EmailTemplate] = {}
-    for grade in ["A", "B", "C", "D"]:
-        tid = grade_template_ids.get(grade)
-        if tid:
-            tpl = db.query(EmailTemplate).filter(EmailTemplate.id == tid).first()
-            if tpl:
-                grade_templates[grade] = tpl
-
-    # Fallback to campaign's primary template if grade template missing
-    fallback_template = campaign.template
-
-    email_provider = get_email_provider()
-
-    # Fetch pending recipients
-    recipients = (
-        db.query(EmailCampaignRecipient)
-        .filter(
-            EmailCampaignRecipient.campaign_id == campaign.id,
-            EmailCampaignRecipient.status == RECIPIENT_PENDING,
-        )
-        .all()
-    )
-
-    sent_count = campaign.sent_count
-    failed_count = campaign.failed_count
-
-    for recipient in recipients:
-        biz = recipient.business
-        if not biz or not recipient.recipient_email:
-            recipient.status = RECIPIENT_FAILED
-            recipient.error_message = "Recipient business or email missing"
-            recipient.attempt_count += 1
-            recipient.attempted_at = datetime.now(timezone.utc)
-            failed_count += 1
-            continue
-
-        grade = (biz.lead_grade or "D").upper().strip()
-        tpl = grade_templates.get(grade, fallback_template)
-
-        if not tpl:
-            recipient.status = RECIPIENT_FAILED
-            recipient.error_message = f"No email template assigned for Grade {grade}"
-            recipient.attempt_count += 1
-            recipient.attempted_at = datetime.now(timezone.utc)
-            failed_count += 1
-            continue
-
-        # Assemble template context
-        context = {
-            "business_name": biz.name or "",
-            "contact_name": recipient.recipient_name or biz.name or "",
-            "email": recipient.recipient_email or "",
-            "phone": biz.phone or "",
-            "website": biz.website or "",
-            "lead_status": getattr(biz, "lead_status", "new") or "new",
-            "lead_score": str(getattr(biz, "lead_score", 0) or 0),
-            "follow_up_title": "",
-            "follow_up_due_at": "",
-        }
-
-        # Render subject and body with allowlisted safe template engine
-        try:
-            rendered_subject = render_template(tpl.subject, context, escape_html=False)
-            rendered_body = render_template(tpl.body, context, escape_html=True)
-        except Exception as e:
-            recipient.status = RECIPIENT_FAILED
-            recipient.error_message = f"Template rendering error: {str(e)}"
-            recipient.attempt_count += 1
-            recipient.attempted_at = datetime.now(timezone.utc)
-            failed_count += 1
-            continue
-
-        # Dispatch through provider
-        recipient.attempt_count += 1
-        recipient.attempted_at = datetime.now(timezone.utc)
-
-        result = email_provider.send_email(
-            to_email=recipient.recipient_email,
-            subject=rendered_subject,
-            html_content=rendered_body,
-            text_content=rendered_body,
-            metadata={
-                "db": db,
-                "campaign_id": campaign.id,
-                "business_id": biz.id,
-                "lead_grade": grade,
-                "template_id": tpl.id,
-            },
-        )
-
-        if result.success:
-            recipient.status = RECIPIENT_SENT
-            recipient.sent_at = datetime.now(timezone.utc)
-            recipient.provider_message_id = result.message_id
-            recipient.error_message = None
-            sent_count += 1
-
-            # Activity log on the lead
-            create_activity(
-                db=db,
-                business_id=biz.id,
-                activity_type=ACTIVITY_EMAIL_CAMPAIGN_RECIPIENT_SENT,
-                title="Email Automation Dispatched",
-                description=f"Email sent via Automation: '{rendered_subject}' (Grade {grade})",
-                metadata={
-                    "campaign_id": campaign.id,
-                    "campaign_name": campaign.name,
-                    "template_id": tpl.id,
-                    "message_id": result.message_id,
-                    "grade": grade,
-                },
-            )
-        else:
-            if result.error and "Daily sending limit reached" in result.error:
-                # Quota exhausted: revert recipient back to pending and halt remaining batch
-                recipient.status = RECIPIENT_PENDING
-                recipient.attempt_count = max(0, recipient.attempt_count - 1)
-                recipient.error_message = result.error
-                logger.warning("Halting city automation %d: Daily sending limit reached.", campaign.id)
-                break
-
-            recipient.status = RECIPIENT_FAILED
-            recipient.error_message = result.error or "Email delivery failed"
-            failed_count += 1
-
-            create_activity(
-                db=db,
-                business_id=biz.id,
-                activity_type=ACTIVITY_EMAIL_CAMPAIGN_RECIPIENT_FAILED,
-                title="Email Automation Failed",
-                description=f"Email failed via Automation: {recipient.error_message}",
-                metadata={
-                    "campaign_id": campaign.id,
-                    "campaign_name": campaign.name,
-                    "grade": grade,
-                },
-            )
-
-    campaign.sent_count = sent_count
-    campaign.failed_count = failed_count
-    campaign.status = STATUS_COMPLETED
-    campaign.completed_at = datetime.now(timezone.utc)
-    campaign.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-
-    return get_city_automation_report(db, campaign.id)
+    from services.email_queue_worker import process_campaign_queue
+    process_campaign_queue(campaign_id, sleep_fn=lambda _: None)
+    return get_city_automation_report(db, campaign_id)
 
 
 # ============================================================================
@@ -532,14 +379,18 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
     )
 
     grade_breakdown: Dict[str, Dict[str, int]] = {
-        "A": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "cancelled": 0},
-        "B": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "cancelled": 0},
-        "C": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "cancelled": 0},
-        "D": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "cancelled": 0},
+        "A": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "processing": 0, "cancelled": 0, "skipped": 0},
+        "B": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "processing": 0, "cancelled": 0, "skipped": 0},
+        "C": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "processing": 0, "cancelled": 0, "skipped": 0},
+        "D": {"total": 0, "sent": 0, "failed": 0, "pending": 0, "processing": 0, "cancelled": 0, "skipped": 0},
     }
 
     pending_count = 0
+    processing_count = 0
+    sent_count = 0
+    failed_count = 0
     cancelled_count = 0
+    skipped_count = 0
 
     for row in breakdown_rows:
         g = str(row.grade).upper()
@@ -551,14 +402,26 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
         grade_breakdown[g]["total"] += cnt
         if st == RECIPIENT_SENT:
             grade_breakdown[g]["sent"] += cnt
+            sent_count += cnt
         elif st == RECIPIENT_FAILED:
             grade_breakdown[g]["failed"] += cnt
-        elif st in {RECIPIENT_PENDING, RECIPIENT_PROCESSING}:
+            failed_count += cnt
+        elif st == RECIPIENT_PROCESSING:
+            grade_breakdown[g]["processing"] += cnt
+            processing_count += cnt
+        elif st == RECIPIENT_PENDING:
             grade_breakdown[g]["pending"] += cnt
             pending_count += cnt
         elif st == RECIPIENT_CANCELLED:
             grade_breakdown[g]["cancelled"] += cnt
             cancelled_count += cnt
+        elif st == RECIPIENT_SKIPPED:
+            grade_breakdown[g]["skipped"] += cnt
+            skipped_count += cnt
+
+    recipient_count = campaign.recipient_count or (sent_count + failed_count + pending_count + processing_count + cancelled_count + skipped_count)
+    processed_count = sent_count + failed_count + cancelled_count + skipped_count
+    percentage = round((processed_count / recipient_count) * 100) if recipient_count > 0 else 100
 
     # Fetch recent recipient executions (sanitized)
     recipient_logs = (
@@ -601,11 +464,15 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
         "name": campaign.name,
         "city": city,
         "status": campaign.status,
-        "recipient_count": campaign.recipient_count,
-        "sent_count": campaign.sent_count,
-        "failed_count": campaign.failed_count,
+        "recipient_count": recipient_count,
+        "sent_count": sent_count,
+        "failed_count": failed_count,
         "pending_count": pending_count,
+        "processing_count": processing_count,
         "cancelled_count": cancelled_count,
+        "skipped_count": skipped_count,
+        "percentage": percentage,
+        "paused_reason": getattr(campaign, "paused_reason", None),
         "scheduled_at": campaign.scheduled_at,
         "started_at": campaign.started_at,
         "completed_at": campaign.completed_at,
@@ -660,6 +527,33 @@ def list_city_automations(
     }
 
 
+def resume_city_automation(db: Session, campaign_id: int) -> Dict[str, Any]:
+    """
+    Resume a paused city email automation run.
+    """
+    campaign = db.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
+    if not campaign:
+        raise ValueError(f"Automation run with ID {campaign_id} not found.")
+
+    if campaign.status not in {STATUS_PAUSED, STATUS_RUNNING}:
+        return get_city_automation_report(db, campaign.id)
+
+    campaign.status = STATUS_RUNNING
+    campaign.paused_reason = None
+    campaign.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    import asyncio
+    try:
+        from services.email_queue_worker import process_campaign_queue
+        loop = asyncio.get_running_loop()
+        loop.create_task(asyncio.to_thread(process_campaign_queue, campaign.id))
+    except RuntimeError:
+        pass
+
+    return get_city_automation_report(db, campaign.id)
+
+
 def cancel_city_automation(db: Session, campaign_id: int) -> Dict[str, Any]:
     """
     Cancel an active or scheduled city automation run.
@@ -668,13 +562,13 @@ def cancel_city_automation(db: Session, campaign_id: int) -> Dict[str, Any]:
     if not campaign:
         raise ValueError(f"Automation run with ID {campaign_id} not found.")
 
-    if campaign.status in {STATUS_COMPLETED, STATUS_CANCELLED}:
+    if campaign.status in {STATUS_COMPLETED, STATUS_COMPLETED_WITH_ERRORS, STATUS_CANCELLED}:
         return get_city_automation_report(db, campaign.id)
 
     # Cancel pending recipients
     db.query(EmailCampaignRecipient).filter(
         EmailCampaignRecipient.campaign_id == campaign.id,
-        EmailCampaignRecipient.status == RECIPIENT_PENDING,
+        EmailCampaignRecipient.status.in_([RECIPIENT_PENDING, RECIPIENT_PROCESSING]),
     ).update({"status": RECIPIENT_CANCELLED, "updated_at": datetime.now(timezone.utc)})
 
     campaign.status = STATUS_CANCELLED

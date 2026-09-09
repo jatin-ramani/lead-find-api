@@ -264,7 +264,9 @@ class GradeBreakdownStats(BaseModel):
     sent: int = 0
     failed: int = 0
     pending: int = 0
+    processing: int = 0
     cancelled: int = 0
+    skipped: int = 0
 
 
 class RecipientExecutionLogItem(BaseModel):
@@ -288,7 +290,11 @@ class CityAutomationReportData(BaseModel):
     sent_count: int
     failed_count: int
     pending_count: int
+    processing_count: int = 0
     cancelled_count: int
+    skipped_count: int = 0
+    percentage: int = 0
+    paused_reason: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

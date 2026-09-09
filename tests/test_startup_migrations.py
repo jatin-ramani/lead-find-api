@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0018"
+        assert revision == "0019"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
@@ -99,6 +99,10 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
         assert "email_campaigns" in inspector.get_table_names()
         assert "email_campaign_recipients" in inspector.get_table_names()
         assert "gmail_oauth_credentials" in inspector.get_table_names()
+
+        # Check 0019 columns
+        assert "next_attempt_at" in [c["name"] for c in inspector.get_columns("email_campaign_recipients")]
+        assert "paused_reason" in [c["name"] for c in inspector.get_columns("email_campaigns")]
 
         # Verify default templates were seeded by migration 0017
         with engine.connect() as connection:
@@ -233,7 +237,40 @@ def test_migration_0017_downgrade_and_reupgrade(monkeypatch):
         database_path.unlink(missing_ok=True)
 
 
+def test_migration_0009_postgres_boolean_default_syntax(monkeypatch, capsys):
+    """
+    Verify migration 0009 generates valid PostgreSQL boolean default DDL.
+    PostgreSQL requires 'DEFAULT false', not 'DEFAULT 0'.
+    """
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(
+        settings, "DATABASE_URL", SecretStr("postgresql+psycopg://user:pass@localhost:5432/leadfinder")
+    )
+
+    alembic_cfg = Config()
+    alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", "postgresql+psycopg://user:pass@localhost:5432/leadfinder")
+
+    # Render offline migration sql 0008 -> 0009
+    command.upgrade(alembic_cfg, "0008:0009", sql=True)
+    captured = capsys.readouterr()
+    sql_output = captured.out
+
+    # Must contain "DEFAULT false" or "DEFAULT FALSE", and NOT "DEFAULT 0"
+    assert "default false" in sql_output.lower()
+    assert "default 0" not in sql_output.lower()
+
+
 def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch):
+    """
+    Simulate upgrading a production database with existing records from 0007 to head (0019).
+    Verify:
+    1. Existing business records remain intact.
+    2. is_favorite defaults to False / 0 without data loss.
+    """
     from alembic.config import Config
     from alembic import command
     from pydantic import SecretStr
@@ -253,7 +290,7 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
         alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
         alembic_cfg.set_main_option("sqlalchemy.url", database_url)
 
-        # 1. Upgrade to 0007
+        # 1. Upgrade to 0007 (before is_favorite was introduced in 0009)
         command.upgrade(alembic_cfg, "0007")
 
         engine = create_engine(database_url)
@@ -265,12 +302,12 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
                 )
             )
 
-        # 2. Upgrade from 0007 all the way to 0018
-        command.upgrade(alembic_cfg, "0018")
+        # 2. Upgrade from 0007 all the way to 0019
+        command.upgrade(alembic_cfg, "0019")
 
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0018"
+            assert rev == "0019"
 
             row = conn.execute(
                 text("SELECT name, is_favorite, lead_score, lead_grade FROM businesses WHERE place_id = 'place_acme_1'")
@@ -335,6 +372,59 @@ def test_migration_0018_downgrade_and_reupgrade(monkeypatch):
                 text("SELECT subject FROM email_templates WHERE name = 'Grade A — High Priority Lead'")
             ).scalar_one()
             assert grade_a_new == "Introduction regarding {{business_name}}"
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0019_downgrade_and_reupgrade(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, inspect, text
+
+    database_path = migrations.BACKEND_DIR / "downgrade_0019_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        migrations.run_startup_migrations()
+
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        assert "next_attempt_at" in [c["name"] for c in inspector.get_columns("email_campaign_recipients")]
+        assert "paused_reason" in [c["name"] for c in inspector.get_columns("email_campaigns")]
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Downgrade to 0018
+        command.downgrade(alembic_cfg, "0018")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0018"
+
+        inspector = inspect(engine)
+        assert "next_attempt_at" not in [c["name"] for c in inspector.get_columns("email_campaign_recipients")]
+        assert "paused_reason" not in [c["name"] for c in inspector.get_columns("email_campaigns")]
+
+        # Re-upgrade to 0019
+        command.upgrade(alembic_cfg, "0019")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0019"
+
+        inspector = inspect(engine)
+        assert "next_attempt_at" in [c["name"] for c in inspector.get_columns("email_campaign_recipients")]
+        assert "paused_reason" in [c["name"] for c in inspector.get_columns("email_campaigns")]
 
     finally:
         if engine is not None:
