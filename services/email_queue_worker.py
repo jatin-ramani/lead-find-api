@@ -369,6 +369,7 @@ def _execute_campaign_queue(campaign_id: int, sleep_fn=time.sleep) -> Dict[str, 
             context = {
                 "business_name": business_name,
                 "contact_name": contact_name,
+                "city": (biz.city or "").strip(),
                 "email": recipient.recipient_email or "",
                 "phone": biz.phone or "",
                 "website": biz.website or "",

@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 ALLOWLISTED_TEMPLATE_VARIABLES: List[str] = [
     "business_name",
     "contact_name",
+    "city",
     "email",
     "phone",
     "website",
@@ -24,8 +25,8 @@ ALLOWLISTED_TEMPLATE_VARIABLES: List[str] = [
     "follow_up_due_at",
 ]
 
-# Regex pattern matching {{ variable_name }}
-_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
+# Regex pattern matching {{ variable_name }} or {{ Variable Name }}
+_VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_ ]+?)\s*\}\}")
 
 
 def get_supported_variables() -> List[Dict[str, str]]:
@@ -33,6 +34,7 @@ def get_supported_variables() -> List[Dict[str, str]]:
     return [
         {"key": "business_name", "label": "Business Name", "description": "The name of the lead or company", "example": "Apex Dental Clinic"},
         {"key": "contact_name", "label": "Contact Name", "description": "Primary contact name if available", "example": "Dr. Sarah Smith"},
+        {"key": "city", "label": "City", "description": "City or geographic location of the business", "example": "Surat"},
         {"key": "email", "label": "Email Address", "description": "Business contact email address", "example": "contact@apexdental.com"},
         {"key": "phone", "label": "Phone Number", "description": "Business telephone number", "example": "+1 555-0199"},
         {"key": "website", "label": "Website URL", "description": "Business website URL", "example": "https://apexdental.com"},
@@ -69,9 +71,12 @@ def render_template(
     safe_template = template_str[:MAX_TEMPLATE_LENGTH]
 
     def _replace_match(match: re.Match) -> str:
-        var_name = match.group(1).lower()
+        raw_key = match.group(1).strip()
+        var_name = raw_key.lower().replace(" ", "_")
         if var_name in ALLOWLISTED_TEMPLATE_VARIABLES:
             val = context.get(var_name)
+            if val is None:
+                val = context.get(raw_key)
             if val is None:
                 return ""
             val_str = str(val)
@@ -132,11 +137,13 @@ def ensure_html_email(content: str) -> str:
 
     # Selectively bold approved value propositions if present in plaintext without <strong>
     strong_phrases = [
+        "look more credible, capture more leads and turn visitors into customers.",
+        "new customers, enquiries and appointments.",
+        "Jatin Ramani",
         "Codebait",
         "show you what your business could look like online",
         "free, no-obligation website mockup",
         "Would you be open to seeing the mockup?",
-        "Jatin Ramani",
     ]
     for phrase in strong_phrases:
         if phrase in html_body and f"<strong>{phrase}</strong>" not in html_body:

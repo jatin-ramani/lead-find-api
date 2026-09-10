@@ -11,7 +11,8 @@ MockEmailProvider / ResendEmailProvider, and TemplateEngine architecture.
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
@@ -675,3 +676,93 @@ def cancel_city_automation(db: Session, campaign_id: int) -> Dict[str, Any]:
         )
 
     return get_city_automation_report(db, campaign.id)
+
+
+# ============================================================================
+# 5. Dedicated City Mobile Numbers XLSX Export for Manual WhatsApp Outreach
+# ============================================================================
+
+from services.xlsx_exporter import build_xlsx_bytes
+
+
+def get_city_mobile_numbers_export_data(db: Session, city: str) -> Tuple[List[str], List[List[str]], int]:
+    """
+    Fetch, filter, and deduplicate mobile numbers for a selected city for manual WhatsApp outreach.
+
+    Guarantees:
+    - Exactly 3 columns: ["Business Type", "Business Name", "Mobile Number"]
+    - Filters only businesses from the requested city (case-insensitive)
+    - Filters only businesses with valid phone numbers (non-empty & contains digits)
+    - Preserves the original phone formatting / country code (e.g. +91)
+    - Deduplicates by normalized phone number (first occurrence kept)
+    - Excludes leads already successfully contacted via WhatsApp workflow (BusinessActivity)
+    - Does NOT exclude failed or pending WhatsApp attempts
+    - No application-level 500-row cap (supports thousands of rows)
+    """
+    if not city or not city.strip():
+        raise ValueError("City parameter is required.")
+
+    city_clean = city.strip()
+
+    # Subquery checking if business was already successfully contacted via WhatsApp
+    whatsapp_contacted_subquery = select(1).where(
+        BusinessActivity.business_id == Business.id,
+        BusinessActivity.activity_type.in_(["whatsapp_contacted", "whatsapp_sent", "whatsapp_delivered"]),
+    ).correlate(Business).exists()
+
+    # Query all eligible businesses with no 500-limit cap
+    businesses = (
+        db.query(Business)
+        .filter(
+            func.lower(func.trim(Business.city)) == city_clean.lower(),
+            Business.phone.isnot(None),
+            func.trim(Business.phone) != "",
+            not_(whatsapp_contacted_subquery),
+        )
+        .order_by(Business.id.asc())
+        .all()
+    )
+
+    headers = ["Business Type", "Business Name", "Mobile Number"]
+    rows: List[List[str]] = []
+    seen_normalized_phones: set = set()
+
+    for biz in businesses:
+        raw_phone = (biz.phone or "").strip()
+        if not raw_phone:
+            continue
+
+        # Must contain at least one digit
+        if not re.search(r"\d", raw_phone):
+            continue
+
+        digits_only = re.sub(r"\D", "", raw_phone)
+        if not digits_only:
+            continue
+
+        # Build candidate deduplication keys (full digits and last 10 digits if available)
+        dedup_keys = [digits_only]
+        if len(digits_only) >= 10:
+            dedup_keys.append(digits_only[-10:])
+
+        if any(k in seen_normalized_phones for k in dedup_keys):
+            continue
+
+        for k in dedup_keys:
+            seen_normalized_phones.add(k)
+
+        biz_type = (biz.category or "General Business").strip() or "General Business"
+        biz_name = (biz.name or "").strip()
+
+        rows.append([biz_type, biz_name, raw_phone])
+
+    return headers, rows, len(businesses)
+
+
+def export_city_mobile_numbers_xlsx(db: Session, city: str) -> bytes:
+    """
+    Generate XLSX binary bytes for WhatsApp mobile number outreach for a city.
+    """
+    headers, rows, _ = get_city_mobile_numbers_export_data(db, city)
+    return build_xlsx_bytes(headers=headers, rows=rows, sheet_name=city.strip()[:31])
+

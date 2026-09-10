@@ -542,6 +542,7 @@ def execute_campaign_batch(
         context = {
             "business_name": biz_name,
             "contact_name": contact_name,
+            "city": (biz.city or "").strip(),
             "email": recip.recipient_email or "",
             "phone": biz.phone or "",
             "website": biz.website or "",

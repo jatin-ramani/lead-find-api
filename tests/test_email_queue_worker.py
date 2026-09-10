@@ -581,21 +581,20 @@ def test_all_grades_receive_same_universal_master_cold_email(db: Session, sample
     grades_sent = {e["grade"] for e in sent_emails}
     assert grades_sent == {"A", "B", "C", "D"}
 
-    # Verify ALL 4 leads received the master mockup offer template
+    # Verify ALL 4 leads received the universal master template
     for email_item in sent_emails:
         biz = db.query(Business).filter(Business.id == email_item["business_id"]).first()
         assert biz is not None
 
         # Subject uses universal pattern
-        assert email_item["subject"] == f"A free website mockup for {biz.name}?"
+        assert email_item["subject"] == f"Quick idea for {biz.name}"
 
-        # Body contains Codebait master copy
+        # Body contains approved master copy
         assert f"Hi {biz.name} team," in email_item["body"]
-        assert "We're Codebait, a web design studio" in email_item["body"]
-        assert f"free, no-obligation website mockup for {biz.name}" in email_item["body"]
+        assert f"I came across {biz.name} in {biz.city}." in email_item["body"]
+        assert "look more credible, capture more leads and turn visitors into customers." in email_item["body"]
         assert "Jatin Ramani" in email_item["body"]
         assert "7861035002" in email_item["body"]
-        assert "jatinrmn@gmail.com" in email_item["body"]
 
         # Ensure NO unresolved variables remain
         assert "{{" not in email_item["subject"]

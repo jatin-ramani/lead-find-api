@@ -292,6 +292,7 @@ def build_template_context(
     ctx = {
         "business_name": business.name or "",
         "contact_name": "",
+        "city": business.city or "",
         "email": business.email or "",
         "phone": business.phone or "",
         "website": business.website or "",

@@ -94,23 +94,18 @@ class MockAIProvider(BaseAIProvider):
         clean_city = city.strip() if city and city.strip() else ""
         city_suffix = f" — {clean_city}" if clean_city else ""
         return {
-            "name": f"Universal Master Cold Email — Website Mockup{city_suffix}",
-            "subject": "A free website mockup for {{business_name}}?",
+            "name": f"Universal Master Cold Email{city_suffix}",
+            "subject": "Quick idea for {{Business Name}}",
             "body": (
-                "<p>Hi {{business_name}} team,</p>\n\n"
-                "<p>A strong website can completely change how a potential customer sees a business before they ever make a call.</p>\n\n"
-                "<p>We're <strong>Codebait</strong>, a web design studio helping local businesses build modern, high-converting websites — "
-                "from complete redesigns to AI-powered features like smart chatbots and automated booking.</p>\n\n"
-                "<p>Instead of sending you a long sales pitch, we'd rather <strong>show you what your business could look like online</strong>.</p>\n\n"
-                "<p>Reply to this email and we'll create a <strong>free, no-obligation website mockup</strong> for {{business_name}} — "
-                "completely free, with no commitment required.</p>\n\n"
-                "<p>If you like what you see, we can talk about taking it further. If not, no problem.</p>\n\n"
-                "<p><strong>Would you be open to seeing the mockup?</strong></p>\n\n"
+                "<p>Hi {{Contact Name}},</p>\n\n"
+                "<p>I came across {{Business Name}} in {{City}}.</p>\n\n"
+                "<p>We build modern websites and AI-powered systems that help businesses <strong>look more credible, capture more leads and turn visitors into customers.</strong></p>\n\n"
+                "<p>These days, a website isn't just an online presence — it can become one of the strongest channels for <strong>new customers, enquiries and appointments.</strong></p>\n\n"
+                "<p>Would you be interested in seeing a quick demo?</p>\n\n"
                 "<p>Best,<br>\n"
                 "<strong>Jatin Ramani</strong><br>\n"
                 "Founder, Codebait<br>\n"
-                "7861035002<br>\n"
-                "jatinrmn@gmail.com</p>"
+                "7861035002</p>"
             ),
         }
 

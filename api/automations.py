@@ -1,7 +1,7 @@
-"""FastAPI router for Email Automations and Execution Logs."""
-
+import re
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+import urllib.parse
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from database.db import get_db
@@ -32,6 +32,7 @@ from schemas.automation import (
 )
 from services.city_automation_service import (
     cancel_city_automation,
+    export_city_mobile_numbers_xlsx,
     generate_city_grade_templates,
     generate_single_city_template,
     get_available_cities,
@@ -91,6 +92,40 @@ def get_city_stats(
 ):
     stats = get_city_lead_grade_stats(db, city)
     return CityGradeStatsResponse(success=True, **stats)
+
+
+@router.get(
+    "/export-mobile-numbers",
+    summary="Export city mobile numbers XLSX for WhatsApp outreach",
+    description="Export deduplicated mobile numbers with business types and names for the selected city as an XLSX file.",
+)
+def export_city_mobile_numbers_endpoint(
+    city: str = Query(..., min_length=1, description="City name to export mobile numbers for"),
+    db: Session = Depends(get_db),
+):
+    clean_city = city.strip()
+    if not clean_city:
+        raise AppError(
+            message="City parameter is required.",
+            error=ErrorCode.VALIDATION_ERROR,
+            status_code=422,
+        )
+
+    xlsx_bytes = export_city_mobile_numbers_xlsx(db, clean_city)
+
+    # Prepare RFC 5987 content-disposition header with exact city name
+    ascii_filename = re.sub(r"[^\w\.\-]", "_", f"{clean_city}.xlsx")
+    utf8_filename = urllib.parse.quote(f"{clean_city}.xlsx")
+
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{utf8_filename}',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
 
 
 @router.get(

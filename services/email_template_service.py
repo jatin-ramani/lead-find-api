@@ -16,26 +16,21 @@ from services.template_engine import render_template
 
 logger = logging.getLogger(__name__)
 
-# Approved Universal Master Cold Email Template for Website Mockups
+# Approved Universal Master Cold Email Template for Modern Websites & AI Systems
 DEFAULT_UNIVERSAL_TEMPLATE = {
-    "name": "Universal Master Cold Email — Website Mockup",
-    "description": "Master cold email outreach template for Codebait website mockup offer.",
-    "subject": "A free website mockup for {{business_name}}?",
+    "name": "Universal Master Cold Email",
+    "description": "Master cold email outreach template for Codebait modern websites and AI systems.",
+    "subject": "Quick idea for {{Business Name}}",
     "body": (
-        "<p>Hi {{business_name}} team,</p>\n\n"
-        "<p>A strong website can completely change how a potential customer sees a business before they ever make a call.</p>\n\n"
-        "<p>We're <strong>Codebait</strong>, a web design studio helping local businesses build modern, high-converting websites — "
-        "from complete redesigns to AI-powered features like smart chatbots and automated booking.</p>\n\n"
-        "<p>Instead of sending you a long sales pitch, we'd rather <strong>show you what your business could look like online</strong>.</p>\n\n"
-        "<p>Reply to this email and we'll create a <strong>free, no-obligation website mockup</strong> for {{business_name}} — "
-        "completely free, with no commitment required.</p>\n\n"
-        "<p>If you like what you see, we can talk about taking it further. If not, no problem.</p>\n\n"
-        "<p><strong>Would you be open to seeing the mockup?</strong></p>\n\n"
+        "<p>Hi {{Contact Name}},</p>\n\n"
+        "<p>I came across {{Business Name}} in {{City}}.</p>\n\n"
+        "<p>We build modern websites and AI-powered systems that help businesses <strong>look more credible, capture more leads and turn visitors into customers.</strong></p>\n\n"
+        "<p>These days, a website isn't just an online presence — it can become one of the strongest channels for <strong>new customers, enquiries and appointments.</strong></p>\n\n"
+        "<p>Would you be interested in seeing a quick demo?</p>\n\n"
         "<p>Best,<br>\n"
         "<strong>Jatin Ramani</strong><br>\n"
         "Founder, Codebait<br>\n"
-        "7861035002<br>\n"
-        "jatinrmn@gmail.com</p>"
+        "7861035002</p>"
     ),
 }
 
@@ -120,6 +115,7 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
                 EmailTemplate.name == DEFAULT_UNIVERSAL_TEMPLATE["name"],
                 EmailTemplate.name.ilike("Universal Master Cold Email%"),
                 EmailTemplate.subject == DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+                EmailTemplate.subject == "A free website mockup for {{business_name}}?",
             ),
         )
         .first()
@@ -136,7 +132,13 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
         )
         db.add(univ_tpl)
         created.append(univ_tpl)
-    elif "<p>" not in (existing_universal.body or ""):
+    elif (
+        "<p>" not in (existing_universal.body or "")
+        or "mockup" in (existing_universal.body or "").lower()
+        or existing_universal.subject == "A free website mockup for {{business_name}}?"
+    ):
+        existing_universal.name = DEFAULT_UNIVERSAL_TEMPLATE["name"]
+        existing_universal.description = DEFAULT_UNIVERSAL_TEMPLATE["description"]
         existing_universal.body = DEFAULT_UNIVERSAL_TEMPLATE["body"]
         existing_universal.subject = DEFAULT_UNIVERSAL_TEMPLATE["subject"]
         existing_universal.updated_at = now
@@ -190,7 +192,7 @@ def get_universal_master_template(db: Session) -> EmailTemplate:
     """
     Fetch the active universal master cold email template.
     If not found, creates and persists it idempotently.
-    Self-heals legacy plain-text database content to hardened HTML.
+    Self-heals legacy database content to the new universal master cold email.
     """
     existing = (
         db.query(EmailTemplate)
@@ -200,13 +202,20 @@ def get_universal_master_template(db: Session) -> EmailTemplate:
                 EmailTemplate.name == DEFAULT_UNIVERSAL_TEMPLATE["name"],
                 EmailTemplate.name.ilike("Universal Master Cold Email%"),
                 EmailTemplate.subject == DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+                EmailTemplate.subject == "A free website mockup for {{business_name}}?",
             ),
         )
         .order_by(EmailTemplate.id.asc())
         .first()
     )
     if existing:
-        if "<p>" not in (existing.body or ""):
+        if (
+            "<p>" not in (existing.body or "")
+            or "mockup" in (existing.body or "").lower()
+            or existing.subject == "A free website mockup for {{business_name}}?"
+        ):
+            existing.name = DEFAULT_UNIVERSAL_TEMPLATE["name"]
+            existing.description = DEFAULT_UNIVERSAL_TEMPLATE["description"]
             existing.body = DEFAULT_UNIVERSAL_TEMPLATE["body"]
             existing.subject = DEFAULT_UNIVERSAL_TEMPLATE["subject"]
             existing.updated_at = datetime.now(timezone.utc)
@@ -467,6 +476,7 @@ def preview_template_content(
     context: Dict[str, Any] = {
         "business_name": "Apex Dental & Healthcare",
         "contact_name": "Dr. Sarah Smith",
+        "city": "Surat",
         "email": "contact@apexdental.example",
         "phone": "+1 (555) 234-5678",
         "website": "https://apexdental.example",
@@ -482,6 +492,7 @@ def preview_template_content(
             context.update({
                 "business_name": biz.name or "",
                 "contact_name": "",
+                "city": biz.city or "",
                 "email": biz.email or "",
                 "phone": biz.phone or "",
                 "website": biz.website or "",

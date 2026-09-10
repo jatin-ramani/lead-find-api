@@ -430,6 +430,7 @@ def gmail_test_send(
         context = {
             "business_name": "Test Business",
             "contact_name": "Test Contact",
+            "city": "Surat",
             "email": cleaned_email,
             "phone": "+91 9876543210",
             "website": "https://example.com",

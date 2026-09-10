@@ -111,7 +111,8 @@ def test_templates_use_only_supported_variables():
         body_vars = _VARIABLE_PATTERN.findall(item["body"])
 
         for var in subject_vars + body_vars:
-            assert var.lower() in ALLOWLISTED_TEMPLATE_VARIABLES, (
+            normalized_var = var.strip().lower().replace(" ", "_")
+            assert normalized_var in ALLOWLISTED_TEMPLATE_VARIABLES, (
                 f"Template '{item['name']}' uses non-allowlisted variable '{{{{{var}}}}}'"
             )
 
@@ -122,28 +123,31 @@ def test_universal_master_template_retrieval_and_rendering(db: Session):
 
     univ_tpl = get_universal_master_template(db)
     assert univ_tpl is not None
-    assert univ_tpl.subject == "A free website mockup for {{business_name}}?"
-    assert "Hi {{business_name}} team," in univ_tpl.body
-    assert "Codebait" in univ_tpl.body
+    assert univ_tpl.subject == "Quick idea for {{Business Name}}"
+    assert "Hi {{Contact Name}}," in univ_tpl.body
+    assert "I came across {{Business Name}} in {{City}}." in univ_tpl.body
+    assert "look more credible, capture more leads and turn visitors into customers." in univ_tpl.body
     assert "Jatin Ramani" in univ_tpl.body
     assert "7861035002" in univ_tpl.body
-    assert "jatinrmn@gmail.com" in univ_tpl.body
 
     # Rendering with business data
-    rendered_subject = render_template(univ_tpl.subject, {"business_name": "Apex Dental"})
-    rendered_body = render_template(univ_tpl.body, {"business_name": "Apex Dental"})
+    rendered_subject = render_template(univ_tpl.subject, {"business_name": "Apex Dental", "contact_name": "Dr. Sarah", "city": "Surat"})
+    rendered_body = render_template(univ_tpl.body, {"business_name": "Apex Dental", "contact_name": "Dr. Sarah", "city": "Surat"})
 
-    assert rendered_subject == "A free website mockup for Apex Dental?"
-    assert "Hi Apex Dental team," in rendered_body
-    assert "for Apex Dental —" in rendered_body
-    assert "{{business_name}}" not in rendered_subject
-    assert "{{business_name}}" not in rendered_body
+    assert rendered_subject == "Quick idea for Apex Dental"
+    assert "Hi Dr. Sarah," in rendered_body
+    assert "I came across Apex Dental in Surat." in rendered_body
+    assert "{{Business Name}}" not in rendered_subject
+    assert "{{Business Name}}" not in rendered_body
+    assert "{{Contact Name}}" not in rendered_body
+    assert "{{City}}" not in rendered_body
 
 
 def test_template_rendering_with_sample_data():
     sample_context = {
         "business_name": "Apex Dental Clinic",
         "contact_name": "Dr. Sarah Smith",
+        "city": "Surat",
         "email": "sarah@apexdental.com",
         "phone": "+1 555-0199",
         "website": "https://apexdental.com",
@@ -158,6 +162,7 @@ def test_template_rendering_with_sample_data():
 
         assert "Apex Dental Clinic" in rendered_subject or "Apex Dental Clinic" in rendered_body
         assert "{{business_name}}" not in rendered_subject
+        assert "{{Business Name}}" not in rendered_subject
 
 
 def test_get_default_grade_template_resolution(db: Session):
@@ -210,7 +215,7 @@ def test_gmail_test_send_resolves_universal_master_template(client: TestClient, 
 
     # Verify subject matched the universal master template
     result = data["results"][0]
-    assert "[TEST] A free website mockup for Test Business?" == result["subject"]
+    assert "[TEST] Quick idea for Test Business" == result["subject"]
 
 
 def test_templates_api_lists_seeded_templates(client: TestClient, db: Session):

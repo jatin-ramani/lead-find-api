@@ -70,6 +70,7 @@ def test_mime_multipart_alternative_structure(db: Session):
     context = {
         "business_name": "Apex Dental Clinic",
         "contact_name": "Dr. Sarah Smith",
+        "city": "Surat",
     }
 
     raw_html = DEFAULT_UNIVERSAL_TEMPLATE["body"]
@@ -88,7 +89,7 @@ def test_mime_multipart_alternative_structure(db: Session):
     with patch("requests.post", side_effect=mock_post):
         result = provider.send_email(
             to_email="recipient@example.com",
-            subject="A free website mockup for Apex Dental Clinic?",
+            subject="Quick idea for Apex Dental Clinic",
             html_content=rendered_html,
             text_content=plain_text,
             metadata={"db": db},
@@ -123,10 +124,14 @@ def test_mime_multipart_alternative_structure(db: Session):
     # 3. HTML part assertions
     assert "<p>" in html_body
     assert "</p>" in html_body
-    assert "<strong>Codebait</strong>" in html_body
+    assert "<strong>look more credible, capture more leads and turn visitors into customers.</strong>" in html_body
+    assert "<strong>Jatin Ramani</strong>" in html_body
     assert "Apex Dental Clinic" in html_body
-    assert "{{business_name}}" not in html_body
-    assert "{{contact_name}}" not in html_body
+    assert "Dr. Sarah Smith" in html_body
+    assert "Surat" in html_body
+    assert "{{Business Name}}" not in html_body
+    assert "{{Contact Name}}" not in html_body
+    assert "{{City}}" not in html_body
 
     # 4. Plain part assertions
     assert "<p>" not in plain_body
@@ -134,9 +139,13 @@ def test_mime_multipart_alternative_structure(db: Session):
     assert "<strong>" not in plain_body
     assert "</strong>" not in plain_body
     assert "Apex Dental Clinic" in plain_body
-    assert "Codebait" in plain_body
-    assert "{{business_name}}" not in plain_body
-    assert "{{contact_name}}" not in plain_body
+    assert "Dr. Sarah Smith" in plain_body
+    assert "Surat" in plain_body
+    assert "look more credible, capture more leads and turn visitors into customers." in plain_body
+    assert "Jatin Ramani" in plain_body
+    assert "{{Business Name}}" not in plain_body
+    assert "{{Contact Name}}" not in plain_body
+    assert "{{City}}" not in plain_body
 
 
 def test_html_tags_not_double_escaped_while_variables_are_escaped(db: Session):

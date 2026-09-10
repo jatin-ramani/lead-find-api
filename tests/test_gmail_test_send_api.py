@@ -82,7 +82,7 @@ def test_gmail_test_send_success_mock_provider(client: TestClient, db: Session):
     assert item["status"] == "sent"
     assert item["message_id"] is not None
     assert "[TEST]" in item["subject"]
-    assert "A free website mockup for Test Business?" in item["subject"]
+    assert "Quick idea for Test Business" in item["subject"]
     assert item["error"] is None
 
     # Verify no CRM database leads or campaigns were created
@@ -96,8 +96,8 @@ def test_gmail_test_send_resolves_universal_master_template(client: TestClient, 
     stored_tpl = EmailTemplate(
         name="Universal Master Cold Email Template",
         description="Master cold outreach template for all qualified leads",
-        subject="A free website mockup for {{business_name}}?",
-        body="<p>Hi {{business_name}} team,</p><p>We're <strong>Codebait</strong>...</p><p>Best,<br><strong>Jatin Ramani</strong></p>",
+        subject="Quick idea for {{Business Name}}",
+        body="<p>Hi {{Contact Name}},</p><p>We're <strong>Codebait</strong>...</p><p>Best,<br><strong>Jatin Ramani</strong></p>",
         is_archived=False,
         created_at=now,
         updated_at=now,
@@ -116,7 +116,7 @@ def test_gmail_test_send_resolves_universal_master_template(client: TestClient, 
     assert data["sent"] == 1
     result_item = data["results"][0]
     assert result_item["grade"] == "Universal"
-    assert "[TEST] A free website mockup for Test Business?" == result_item["subject"]
+    assert "[TEST] Quick idea for Test Business" == result_item["subject"]
 
 
 def test_gmail_test_send_with_real_gmail_provider(client: TestClient, db: Session, monkeypatch):
