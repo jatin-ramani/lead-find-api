@@ -199,6 +199,8 @@ class TestCityAutomationEndpoints:
         assert data_rep["status"] == "completed"
         assert data_rep["sent_count"] == 4
         assert data_rep["failed_count"] == 0
+        assert data_rep["remaining_count"] == 0
+        assert len(data_rep["remaining_recipients"]) == 0
         assert data_rep["grade_breakdown"]["A"]["sent"] == 1
         assert data_rep["grade_breakdown"]["B"]["sent"] == 1
         assert data_rep["grade_breakdown"]["C"]["sent"] == 1
@@ -276,4 +278,37 @@ class TestCityAutomationEndpoints:
         cancel_report = res_cancel.json()["data"]
         assert cancel_report["status"] == "cancelled"
         assert cancel_report["cancelled_count"] == 1
+
+    def test_get_master_template_api(self, client):
+        res = client.get("/automations/master-template?city=Jaipur")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["city"] == "Jaipur"
+        tpl = data["data"]
+        assert "A free website mockup for {{business_name}}?" in tpl["subject"]
+        assert "Codebait" in tpl["body"]
+        assert "Jatin Ramani" in tpl["body"]
+
+    def test_start_city_automation_with_master_template(self, client, db):
+        b1 = Business(name="Jaipur Gems", city="Jaipur", email="gems@jaipur.example", lead_grade="A")
+        b2 = Business(name="Jaipur Crafts", city="Jaipur", email="crafts@jaipur.example", lead_grade="C")
+        db.add_all([b1, b2])
+        db.commit()
+
+        payload = {
+            "city": "Jaipur",
+            "name": "Jaipur Master Automation",
+            "template": {
+                "subject": "A free website mockup for {{business_name}}?",
+                "body": "Hi {{business_name}} team,\n\nWe're Codebait...\n\nBest,\nJatin Ramani",
+                "name": "Jaipur Master Template",
+            },
+        }
+        res = client.post("/automations/start-city-automation", json=payload)
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["city"] == "Jaipur"
+        assert data["recipient_count"] == 2
+        assert data["status"] == "running"
 

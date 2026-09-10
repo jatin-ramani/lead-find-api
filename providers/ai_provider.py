@@ -52,6 +52,15 @@ class BaseAIProvider(ABC):
     """Abstract interface for AI template generation providers."""
 
     @abstractmethod
+    def generate_master_template(
+        self,
+        city: Optional[str] = None,
+        industry: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Generate the universal master cold email template."""
+        raise NotImplementedError
+
+    @abstractmethod
     def generate_grade_templates(
         self,
         city: str,
@@ -77,60 +86,45 @@ class MockAIProvider(BaseAIProvider):
     Produces rich, customized templates deterministically without external network calls.
     """
 
+    def generate_master_template(
+        self,
+        city: Optional[str] = None,
+        industry: Optional[str] = None,
+    ) -> Dict[str, str]:
+        clean_city = city.strip() if city and city.strip() else ""
+        city_suffix = f" — {clean_city}" if clean_city else ""
+        return {
+            "name": f"Universal Master Cold Email — Website Mockup{city_suffix}",
+            "subject": "A free website mockup for {{business_name}}?",
+            "body": (
+                "Hi {{business_name}} team,\n\n"
+                "A strong website can completely change how a potential customer sees a business before they ever make a call.\n\n"
+                "We're Codebait, a web design studio helping local businesses build modern, high-converting websites — "
+                "from complete redesigns to AI-powered features like smart chatbots and automated booking.\n\n"
+                "Instead of sending you a long sales pitch, we'd rather show you what your business could look like online.\n\n"
+                "Reply to this email and we'll create a free, no-obligation website mockup for {{business_name}} — "
+                "completely free, with no commitment required.\n\n"
+                "If you like what you see, we can talk about taking it further. If not, no problem.\n\n"
+                "Would you be open to seeing the mockup?\n\n"
+                "Best,\n"
+                "Jatin Ramani\n"
+                "Founder, Codebait\n"
+                "7861035002\n"
+                "jatinrmn@gmail.com"
+            ),
+        }
+
     def generate_grade_templates(
         self,
         city: str,
         industry: Optional[str] = None,
     ) -> Dict[str, Dict[str, str]]:
-        clean_city = city.strip() if city else "your area"
-        ind = f" in {industry.strip()}" if industry and industry.strip() else ""
-
+        master = self.generate_master_template(city=city, industry=industry)
         return {
-            "A": {
-                "name": f"Grade A VIP Outreach — {clean_city}",
-                "subject": f"Strategic growth opportunity for {{{{business_name}}}} in {clean_city}",
-                "body": (
-                    f"Hi {{{{contact_name}}}},\n\n"
-                    f"I've been following {{{{business_name}}}}'s impressive work{ind} across {clean_city}. "
-                    f"Given your strong reputation and current score of {{{{lead_score}}}}, we have prepared a tailored "
-                    f"strategy to expand your local market leadership.\n\n"
-                    f"Would you have 10 minutes this Thursday for a brief discussion on how we can double your inbound inquiries?\n\n"
-                    f"Best regards,\nGrowth Team"
-                ),
-            },
-            "B": {
-                "name": f"Grade B Professional — {clean_city}",
-                "subject": f"Enhancing digital presence for {{{{business_name}}}}",
-                "body": (
-                    f"Hi {{{{contact_name}}}},\n\n"
-                    f"We recently reviewed {{{{business_name}}}}'s online profile in {clean_city}. "
-                    f"You have great foundations, and with a few targeted digital improvements, we can help you attract significantly more customers.\n\n"
-                    f"Are you open to a quick 5-minute overview of our recommendations?\n\n"
-                    f"Best regards,\nClient Strategy Team"
-                ),
-            },
-            "C": {
-                "name": f"Grade C Introduction — {clean_city}",
-                "subject": f"Complimentary website & visibility check for {{{{business_name}}}}",
-                "body": (
-                    f"Hello {{{{contact_name}}}},\n\n"
-                    f"We put together a quick, complimentary visibility report for businesses in {clean_city}. "
-                    f"We noticed a few quick wins for {{{{business_name}}}} that could improve customer discovery.\n\n"
-                    f"Feel free to reply if you'd like us to send over the PDF report.\n\n"
-                    f"Best regards,\nSupport & Audit Team"
-                ),
-            },
-            "D": {
-                "name": f"Grade D Discovery — {clean_city}",
-                "subject": f"Quick question for {{{{business_name}}}}",
-                "body": (
-                    f"Hi {{{{contact_name}}}},\n\n"
-                    f"Reaching out briefly from our {clean_city} business network. "
-                    f"Are you currently exploring new ways to acquire customers for {{{{business_name}}}}?\n\n"
-                    f"Let me know if you'd be open to a quick chat.\n\n"
-                    f"Thanks,\nOutreach Team"
-                ),
-            },
+            "A": {**master, "name": f"Universal Master Cold Email (Grade A) — {city}"},
+            "B": {**master, "name": f"Universal Master Cold Email (Grade B) — {city}"},
+            "C": {**master, "name": f"Universal Master Cold Email (Grade C) — {city}"},
+            "D": {**master, "name": f"Universal Master Cold Email (Grade D) — {city}"},
         }
 
     def generate_single_grade_template(
@@ -139,11 +133,7 @@ class MockAIProvider(BaseAIProvider):
         city: str,
         industry: Optional[str] = None,
     ) -> Dict[str, str]:
-        g = grade.upper().strip()
-        all_templates = self.generate_grade_templates(city, industry)
-        if g in all_templates:
-            return all_templates[g]
-        return all_templates["D"]
+        return self.generate_master_template(city=city, industry=industry)
 
 
 class OpenAIProvider(BaseAIProvider):
@@ -153,6 +143,13 @@ class OpenAIProvider(BaseAIProvider):
         self.api_key = api_key
         self.model = model
         self.mock_fallback = MockAIProvider()
+
+    def generate_master_template(
+        self,
+        city: Optional[str] = None,
+        industry: Optional[str] = None,
+    ) -> Dict[str, str]:
+        return self.mock_fallback.generate_master_template(city=city, industry=industry)
 
     def generate_grade_templates(
         self,

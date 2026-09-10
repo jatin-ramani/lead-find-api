@@ -16,7 +16,30 @@ from services.template_engine import render_template
 
 logger = logging.getLogger(__name__)
 
-# Deterministic default email templates for Lead Grades A, B, C, D
+# Approved Universal Master Cold Email Template for Website Mockups
+DEFAULT_UNIVERSAL_TEMPLATE = {
+    "name": "Universal Master Cold Email — Website Mockup",
+    "description": "Master cold email outreach template for Codebait website mockup offer.",
+    "subject": "A free website mockup for {{business_name}}?",
+    "body": (
+        "Hi {{business_name}} team,\n\n"
+        "A strong website can completely change how a potential customer sees a business before they ever make a call.\n\n"
+        "We're Codebait, a web design studio helping local businesses build modern, high-converting websites — "
+        "from complete redesigns to AI-powered features like smart chatbots and automated booking.\n\n"
+        "Instead of sending you a long sales pitch, we'd rather show you what your business could look like online.\n\n"
+        "Reply to this email and we'll create a free, no-obligation website mockup for {{business_name}} — "
+        "completely free, with no commitment required.\n\n"
+        "If you like what you see, we can talk about taking it further. If not, no problem.\n\n"
+        "Would you be open to seeing the mockup?\n\n"
+        "Best,\n"
+        "Jatin Ramani\n"
+        "Founder, Codebait\n"
+        "7861035002\n"
+        "jatinrmn@gmail.com"
+    ),
+}
+
+# Deterministic default email templates for Lead Grades A, B, C, D (retained for historical reference)
 DEFAULT_GRADE_TEMPLATES = [
     {
         "grade": "A",
@@ -79,14 +102,41 @@ DEFAULT_GRADE_TEMPLATES = [
 
 def seed_default_templates(db: Session) -> List[EmailTemplate]:
     """
-    Ensure the 4 deterministic default grade templates (Grade A, B, C, D) exist in the database.
+    Ensure the universal master cold email template and default grade templates exist in the database.
     Idempotent:
-    - If an active template for a grade already exists, it is preserved without re-creating.
+    - If an active template already exists, it is preserved without re-creating.
     - Never creates duplicates.
     """
     created: List[EmailTemplate] = []
     now = datetime.now(timezone.utc)
 
+    # 1. Seed Universal Master Template
+    existing_universal = (
+        db.query(EmailTemplate)
+        .filter(
+            EmailTemplate.is_archived.is_(False),
+            or_(
+                EmailTemplate.name == DEFAULT_UNIVERSAL_TEMPLATE["name"],
+                EmailTemplate.name.ilike("Universal Master Cold Email%"),
+                EmailTemplate.subject == DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+            ),
+        )
+        .first()
+    )
+    if not existing_universal:
+        univ_tpl = EmailTemplate(
+            name=DEFAULT_UNIVERSAL_TEMPLATE["name"],
+            description=DEFAULT_UNIVERSAL_TEMPLATE["description"],
+            subject=DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+            body=DEFAULT_UNIVERSAL_TEMPLATE["body"],
+            is_archived=False,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(univ_tpl)
+        created.append(univ_tpl)
+
+    # 2. Seed Historical Grade Templates
     for item in DEFAULT_GRADE_TEMPLATES:
         grade = item["grade"]
         existing = (
@@ -121,6 +171,43 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
             db.refresh(tpl)
 
     return created
+
+
+def get_universal_master_template(db: Session) -> EmailTemplate:
+    """
+    Fetch the active universal master cold email template.
+    If not found, creates and persists it idempotently.
+    """
+    existing = (
+        db.query(EmailTemplate)
+        .filter(
+            EmailTemplate.is_archived.is_(False),
+            or_(
+                EmailTemplate.name == DEFAULT_UNIVERSAL_TEMPLATE["name"],
+                EmailTemplate.name.ilike("Universal Master Cold Email%"),
+                EmailTemplate.subject == DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+            ),
+        )
+        .order_by(EmailTemplate.id.asc())
+        .first()
+    )
+    if existing:
+        return existing
+
+    now = datetime.now(timezone.utc)
+    tpl = EmailTemplate(
+        name=DEFAULT_UNIVERSAL_TEMPLATE["name"],
+        description=DEFAULT_UNIVERSAL_TEMPLATE["description"],
+        subject=DEFAULT_UNIVERSAL_TEMPLATE["subject"],
+        body=DEFAULT_UNIVERSAL_TEMPLATE["body"],
+        is_archived=False,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(tpl)
+    db.commit()
+    db.refresh(tpl)
+    return tpl
 
 
 def get_default_grade_template(db: Session, grade: str) -> Optional[EmailTemplate]:

@@ -246,6 +246,18 @@ class AISingleTemplateResponse(BaseModel):
     data: AIGradeTemplateItem
 
 
+class MasterTemplateItem(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=500)
+    body: str = Field(..., min_length=1)
+    name: Optional[str] = None
+
+
+class MasterTemplateResponse(BaseModel):
+    success: bool = True
+    city: Optional[str] = None
+    data: MasterTemplateItem
+
+
 class GradeTemplatePayload(BaseModel):
     subject: str = Field(..., min_length=1, max_length=500)
     body: str = Field(..., min_length=1)
@@ -254,7 +266,8 @@ class GradeTemplatePayload(BaseModel):
 
 class CityAutomationStartRequest(BaseModel):
     city: str = Field(..., min_length=1)
-    templates: Dict[str, GradeTemplatePayload]
+    template: Optional[MasterTemplateItem] = None
+    templates: Optional[Dict[str, GradeTemplatePayload]] = None
     name: Optional[str] = None
     scheduled_at: Optional[datetime] = None
 
@@ -291,6 +304,7 @@ class CityAutomationReportData(BaseModel):
     failed_count: int
     pending_count: int
     processing_count: int = 0
+    remaining_count: int = 0
     cancelled_count: int
     skipped_count: int = 0
     percentage: int = 0
@@ -300,6 +314,7 @@ class CityAutomationReportData(BaseModel):
     completed_at: Optional[datetime] = None
     created_at: datetime
     grade_breakdown: Dict[str, GradeBreakdownStats]
+    remaining_recipients: List[RecipientExecutionLogItem] = []
     recipient_logs: List[RecipientExecutionLogItem] = []
 
 

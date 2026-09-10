@@ -479,4 +479,129 @@ def test_daily_quota_pause_survives_restart_and_resumes_cleanly(db: Session, sam
     assert final_rep["status"] == STATUS_COMPLETED
     assert final_rep["sent_count"] == 4
     assert final_rep["pending_count"] == 0
+    assert final_rep["remaining_count"] == 0
+    assert len(final_rep["remaining_recipients"]) == 0
+    assert len(final_rep["recipient_logs"]) == 4
+
+
+def test_sent_recipients_excluded_from_remaining_list_and_preserved_in_history(db: Session, sample_businesses, default_templates_dict):
+    """
+    Verify:
+    1. Initially all 4 recipients are in remaining_recipients (remaining_count = 4).
+    2. After 2 are sent, remaining_recipients contains only the 2 unsent leads (remaining_count = 2).
+    3. Sent recipients leave remaining_recipients but remain in recipient_logs and DB.
+    4. Campaign scope: Leads sent in Campaign A remain eligible for a future Campaign B.
+    """
+    # 1. Start campaign A
+    rep_a = start_city_automation(db, city="Austin", templates=default_templates_dict, execute_now=False)
+    camp_a_id = rep_a["id"]
+
+    initial_rep = get_city_automation_report(db, camp_a_id)
+    assert initial_rep["recipient_count"] == 4
+    assert initial_rep["sent_count"] == 0
+    assert initial_rep["remaining_count"] == 4
+    assert len(initial_rep["remaining_recipients"]) == 4
+    assert len(initial_rep["recipient_logs"]) == 4
+
+    # 2. Claim and send 2 recipients
+    rec1 = claim_next_recipient(db, camp_a_id)
+    assert rec1 is not None
+    rec1.status = RECIPIENT_SENT
+    rec1.sent_at = datetime.now(timezone.utc)
+    rec1.provider_message_id = "msg_sent_1"
+
+    rec2 = claim_next_recipient(db, camp_a_id)
+    assert rec2 is not None
+    rec2.status = RECIPIENT_SENT
+    rec2.sent_at = datetime.now(timezone.utc)
+    rec2.provider_message_id = "msg_sent_2"
+
+    db.commit()
+
+    # 3. Verify report after 2 sends
+    mid_rep = get_city_automation_report(db, camp_a_id)
+    assert mid_rep["sent_count"] == 2
+    assert mid_rep["remaining_count"] == 2
+    assert len(mid_rep["remaining_recipients"]) == 2
+
+    # Verify the 2 remaining are strictly the unsent ones
+    remaining_ids = {r["id"] for r in mid_rep["remaining_recipients"]}
+    assert rec1.id not in remaining_ids
+    assert rec2.id not in remaining_ids
+
+    # Verify history / logs still contains ALL 4 recipients
+    assert len(mid_rep["recipient_logs"]) == 4
+    log_ids = {r["id"] for r in mid_rep["recipient_logs"]}
+    assert rec1.id in log_ids
+    assert rec2.id in log_ids
+
+    # 4. Campaign Scope Isolation: Start a separate Campaign B for Austin
+    rep_b = start_city_automation(db, city="Austin", templates=default_templates_dict, execute_now=False)
+    camp_b_id = rep_b["id"]
+    assert camp_b_id != camp_a_id
+    rep_b_report = get_city_automation_report(db, camp_b_id)
+    # Campaign B has its own independent 4 recipients
+    assert rep_b_report["recipient_count"] == 4
+    assert rep_b_report["remaining_count"] == 4
+    assert len(rep_b_report["remaining_recipients"]) == 4
+
+
+def test_all_grades_receive_same_universal_master_cold_email(db: Session, sample_businesses):
+    """
+    Verify that every eligible lead (Grades A, B, C, D) receives the exact same universal master cold email,
+    with personalized business_name and safe fallback without unresolved variables.
+    """
+    report = start_city_automation(db, city="Austin", execute_now=False)
+    campaign_id = report["id"]
+
+    sent_emails: list = []
+
+    def mock_send(to_email, subject, html_content, text_content, metadata=None):
+        sent_emails.append({
+            "to": to_email,
+            "subject": subject,
+            "body": text_content,
+            "grade": metadata.get("lead_grade"),
+            "business_id": metadata.get("business_id"),
+        })
+        return EmailSendResult(success=True, message_id=f"msg_{len(sent_emails)}")
+
+    mock_provider = MagicMock()
+    mock_provider.send_email.side_effect = mock_send
+
+    with patch("services.email_queue_worker.get_email_provider", return_value=mock_provider):
+        process_campaign_queue(campaign_id, sleep_fn=lambda _: None)
+
+    rep = get_city_automation_report(db, campaign_id)
+    assert rep["status"] == STATUS_COMPLETED
+    assert rep["sent_count"] == 4
+    assert len(sent_emails) == 4
+
+    # Check grades of recipients sent
+    grades_sent = {e["grade"] for e in sent_emails}
+    assert grades_sent == {"A", "B", "C", "D"}
+
+    # Verify ALL 4 leads received the master mockup offer template
+    for email_item in sent_emails:
+        biz = db.query(Business).filter(Business.id == email_item["business_id"]).first()
+        assert biz is not None
+
+        # Subject uses universal pattern
+        assert email_item["subject"] == f"A free website mockup for {biz.name}?"
+
+        # Body contains Codebait master copy
+        assert f"Hi {biz.name} team," in email_item["body"]
+        assert "We're Codebait, a web design studio" in email_item["body"]
+        assert f"free, no-obligation website mockup for {biz.name}" in email_item["body"]
+        assert "Jatin Ramani" in email_item["body"]
+        assert "7861035002" in email_item["body"]
+        assert "jatinrmn@gmail.com" in email_item["body"]
+
+        # Ensure NO unresolved variables remain
+        assert "{{" not in email_item["subject"]
+        assert "}}" not in email_item["subject"]
+        assert "{{" not in email_item["body"]
+        assert "}}" not in email_item["body"]
+
+
 

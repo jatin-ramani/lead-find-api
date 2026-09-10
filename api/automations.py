@@ -25,6 +25,8 @@ from schemas.automation import (
     CityGradeStatsResponse,
     CityStatListResponse,
     ExecutionListResponse,
+    MasterTemplateItem,
+    MasterTemplateResponse,
     ProcessDueResponse,
     SupportedVariableResponse,
 )
@@ -35,6 +37,7 @@ from services.city_automation_service import (
     get_available_cities,
     get_city_automation_report,
     get_city_lead_grade_stats,
+    get_master_cold_email_template,
     list_city_automations,
     resume_city_automation,
     start_city_automation,
@@ -90,6 +93,27 @@ def get_city_stats(
     return CityGradeStatsResponse(success=True, **stats)
 
 
+@router.get(
+    "/master-template",
+    response_model=MasterTemplateResponse,
+    summary="Get universal master cold email template",
+    description="Return the universal master cold email template for website mockup outreach.",
+)
+def get_master_template_endpoint(
+    city: Optional[str] = Query(None, description="Optional city name for template context"),
+):
+    tpl = get_master_cold_email_template(city=city)
+    return MasterTemplateResponse(
+        success=True,
+        city=city,
+        data=MasterTemplateItem(
+            name=tpl.get("name", "Universal Master Cold Email — Website Mockup"),
+            subject=tpl["subject"],
+            body=tpl["body"],
+        ),
+    )
+
+
 @router.post(
     "/generate-templates",
     response_model=AIGradeTemplatesResponse,
@@ -138,27 +162,38 @@ def generate_single_template(payload: AISingleTemplateRequest):
     "/start-city-automation",
     response_model=CityAutomationReportResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Start city-first grade email automation",
-    description="Snapshot email-eligible leads in city, assign templates by grade, and dispatch emails in background.",
+    summary="Start city-first email automation with universal master cold email",
+    description="Snapshot email-eligible leads in city, assign universal master cold email, and dispatch emails in background.",
 )
 def launch_city_automation(
     payload: CityAutomationStartRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    # Convert templates payload to dict
-    tpls_dict = {
-        grade: {
-            "subject": item.subject,
-            "body": item.body,
-            "name": item.name,
+    tpl_dict = None
+    if payload.template:
+        tpl_dict = {
+            "subject": payload.template.subject,
+            "body": payload.template.body,
+            "name": payload.template.name or f"Email Automation — {payload.city} — Master Template",
         }
-        for grade, item in payload.templates.items()
-    }
+
+    tpls_dict = None
+    if payload.templates:
+        tpls_dict = {
+            grade: {
+                "subject": item.subject,
+                "body": item.body,
+                "name": item.name,
+            }
+            for grade, item in payload.templates.items()
+        }
+
     try:
         report = start_city_automation(
             db=db,
             city=payload.city,
+            template=tpl_dict,
             templates=tpls_dict,
             name=payload.name,
             scheduled_at=payload.scheduled_at,

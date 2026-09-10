@@ -153,16 +153,24 @@ def get_city_lead_grade_stats(db: Session, city: str) -> Dict[str, Any]:
 
 
 # ============================================================================
-# 2. AI Template Generation
+# 2. Template Generation & Master Cold Email
 # ============================================================================
+
+def get_master_cold_email_template(city: Optional[str] = None, industry: Optional[str] = None) -> Dict[str, str]:
+    """
+    Return the universal master cold email template for website mockup outreach.
+    """
+    ai_provider = get_ai_provider()
+    return ai_provider.generate_master_template(city=city, industry=industry)
+
 
 def generate_city_grade_templates(
     city: str,
     industry: Optional[str] = None,
 ) -> Dict[str, Dict[str, str]]:
     """
-    Generate tailored email templates for all 4 lead grades (A, B, C, D)
-    using the active AI provider abstraction.
+    Generate email templates using the active AI provider abstraction.
+    Returns the universal master template.
     """
     ai_provider = get_ai_provider()
     return ai_provider.generate_grade_templates(city=city, industry=industry)
@@ -174,7 +182,7 @@ def generate_single_city_template(
     industry: Optional[str] = None,
 ) -> Dict[str, str]:
     """
-    Generate or regenerate an individual email template for a single grade.
+    Generate or regenerate the universal email template.
     """
     ai_provider = get_ai_provider()
     return ai_provider.generate_single_grade_template(
@@ -185,22 +193,23 @@ def generate_single_city_template(
 
 
 # ============================================================================
-# 3. Grade-Based Automation Start & Execution
+# 3. Universal Master Automation Start & Execution
 # ============================================================================
 
 def start_city_automation(
     db: Session,
     city: str,
-    templates: Dict[str, Dict[str, str]],
+    template: Optional[Dict[str, str]] = None,
+    templates: Optional[Dict[str, Dict[str, str]]] = None,
     name: Optional[str] = None,
     scheduled_at: Optional[datetime] = None,
     execute_now: bool = True,
 ) -> Dict[str, Any]:
     """
-    Create and dispatch a city-first, grade-based email automation.
-    - Saves/manages templates for each grade
+    Create and dispatch a city-first email automation using ONE universal master cold email.
+    - Persists ONE universal EmailTemplate for the campaign
     - Snapshots eligible leads in the city
-    - Dispatches grade-specific emails with error isolation
+    - Dispatches emails uniformly to all eligible leads regardless of lead grade
     - Logs CRM activity and records execution state
     """
     clean_city = city.strip()
@@ -217,42 +226,44 @@ def start_city_automation(
     now = datetime.now(timezone.utc)
     auto_name = name.strip() if name and name.strip() else f"Email Automation — {clean_city}"
 
-    # 1. Create / persist EmailTemplate for each grade
-    grade_template_ids: Dict[str, int] = {}
-    grade_template_objects: Dict[str, EmailTemplate] = {}
+    # Extract template data from either single template or legacy grade dict
+    tpl_data: Dict[str, str] = {}
+    if template and isinstance(template, dict):
+        tpl_data = template
+    elif templates and isinstance(templates, dict):
+        # Fallback to master or first available
+        tpl_data = templates.get("master") or templates.get("A") or templates.get("B") or next(iter(templates.values()), {})
 
-    for grade in ["A", "B", "C", "D"]:
-        tpl_data = templates.get(grade) or {}
-        subject = (tpl_data.get("subject") or "").strip() or f"Outreach for {{{{business_name}}}}"
-        body = (tpl_data.get("body") or "").strip() or f"Hello {{{{contact_name}}}},\n\nConnecting from {clean_city}."
-        tpl_name = (tpl_data.get("name") or "").strip() or f"{auto_name} (Grade {grade})"
+    master_default = get_master_cold_email_template(clean_city)
+    subject = (tpl_data.get("subject") or "").strip() or master_default["subject"]
+    body = (tpl_data.get("body") or "").strip() or master_default["body"]
+    tpl_name = (tpl_data.get("name") or "").strip() or f"{auto_name} — Master Template"
 
-        template = EmailTemplate(
-            name=tpl_name,
-            description=f"Auto-generated Grade {grade} template for {clean_city}",
-            subject=subject,
-            body=body,
-            is_archived=False,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(template)
-        db.flush()
-        grade_template_ids[grade] = template.id
-        grade_template_objects[grade] = template
+    # 1. Create / persist single universal EmailTemplate for this automation
+    saved_template = EmailTemplate(
+        name=tpl_name,
+        description=f"Universal master cold email template for {clean_city}",
+        subject=subject,
+        body=body,
+        is_archived=False,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(saved_template)
+    db.flush()
 
     # 2. Create EmailCampaign record (representing this automation run)
     filter_criteria = {
         "city": clean_city,
-        "workflow": "city_grade_automation",
-        "grade_templates": grade_template_ids,
+        "workflow": "city_universal_automation",
+        "template_id": saved_template.id,
     }
 
     initial_status = STATUS_SCHEDULED if scheduled_at else STATUS_DRAFT
     campaign = EmailCampaign(
         name=auto_name,
-        description=f"City-first grade automation for {clean_city}",
-        template_id=grade_template_ids["A"],  # Primary reference template
+        description=f"Universal cold email automation for {clean_city}",
+        template_id=saved_template.id,
         status=initial_status,
         filter_criteria_json=json.dumps(filter_criteria, ensure_ascii=False),
         recipient_count=0,
@@ -421,9 +432,52 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
 
     recipient_count = campaign.recipient_count or (sent_count + failed_count + pending_count + processing_count + cancelled_count + skipped_count)
     processed_count = sent_count + failed_count + cancelled_count + skipped_count
+    remaining_count = pending_count + processing_count
     percentage = round((processed_count / recipient_count) * 100) if recipient_count > 0 else 100
 
-    # Fetch recent recipient executions (sanitized)
+    # Fetch remaining unsent recipients (pending or processing)
+    remaining_rows = (
+        db.query(
+            EmailCampaignRecipient.id,
+            EmailCampaignRecipient.business_id,
+            EmailCampaignRecipient.recipient_email,
+            EmailCampaignRecipient.recipient_name,
+            EmailCampaignRecipient.status,
+            EmailCampaignRecipient.error_message,
+            EmailCampaignRecipient.sent_at,
+            EmailCampaignRecipient.attempted_at,
+            Business.name.label("business_name"),
+            Business.lead_grade,
+        )
+        .join(Business, EmailCampaignRecipient.business_id == Business.id)
+        .filter(
+            EmailCampaignRecipient.campaign_id == campaign.id,
+            EmailCampaignRecipient.status.in_([RECIPIENT_PENDING, RECIPIENT_PROCESSING]),
+        )
+        .order_by(
+            EmailCampaignRecipient.next_attempt_at.asc().nullsfirst(),
+            EmailCampaignRecipient.id.asc(),
+        )
+        .limit(200)
+        .all()
+    )
+
+    remaining_list = [
+        {
+            "id": r.id,
+            "business_id": r.business_id,
+            "business_name": r.business_name or r.recipient_name or "Business",
+            "recipient_email": r.recipient_email,
+            "lead_grade": (r.lead_grade or "D").upper(),
+            "status": r.status,
+            "error_message": r.error_message,
+            "sent_at": r.sent_at,
+            "attempted_at": r.attempted_at,
+        }
+        for r in remaining_rows
+    ]
+
+    # Fetch recent recipient executions (all history / logs, including sent and failed)
     recipient_logs = (
         db.query(
             EmailCampaignRecipient.id,
@@ -440,7 +494,7 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
         .join(Business, EmailCampaignRecipient.business_id == Business.id)
         .filter(EmailCampaignRecipient.campaign_id == campaign.id)
         .order_by(EmailCampaignRecipient.id.desc())
-        .limit(100)
+        .limit(200)
         .all()
     )
 
@@ -469,6 +523,7 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
         "failed_count": failed_count,
         "pending_count": pending_count,
         "processing_count": processing_count,
+        "remaining_count": remaining_count,
         "cancelled_count": cancelled_count,
         "skipped_count": skipped_count,
         "percentage": percentage,
@@ -478,6 +533,7 @@ def get_city_automation_report(db: Session, campaign_id: int) -> Dict[str, Any]:
         "completed_at": campaign.completed_at,
         "created_at": campaign.created_at,
         "grade_breakdown": grade_breakdown,
+        "remaining_recipients": remaining_list,
         "recipient_logs": logs_list,
     }
 

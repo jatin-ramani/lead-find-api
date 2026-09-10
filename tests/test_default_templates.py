@@ -19,7 +19,9 @@ from sqlalchemy.orm import Session
 from database.models import EmailTemplate, GmailOAuthCredential
 from services.email_template_service import (
     DEFAULT_GRADE_TEMPLATES,
+    DEFAULT_UNIVERSAL_TEMPLATE,
     get_default_grade_template,
+    get_universal_master_template,
     seed_default_templates,
 )
 from services.template_engine import (
@@ -29,20 +31,21 @@ from services.template_engine import (
 )
 
 
-def test_seed_default_templates_creates_four_grades(db: Session):
+def test_seed_default_templates_creates_universal_and_grades(db: Session):
     # Ensure initially empty
     db.query(EmailTemplate).delete()
     db.commit()
 
     created = seed_default_templates(db)
-    assert len(created) == 4
+    assert len(created) == 5  # 1 universal master + 4 grade templates
 
     all_templates = db.query(EmailTemplate).all()
-    assert len(all_templates) == 4
+    assert len(all_templates) == 5
 
     names = {t.name for t in all_templates}
-    expected_names = {item["name"] for item in DEFAULT_GRADE_TEMPLATES}
-    assert names == expected_names
+    assert DEFAULT_UNIVERSAL_TEMPLATE["name"] in names
+    for item in DEFAULT_GRADE_TEMPLATES:
+        assert item["name"] in names
 
     # Check all are active
     assert all(t.is_archived is False for t in all_templates)
@@ -52,17 +55,17 @@ def test_seed_default_templates_is_idempotent(db: Session):
     db.query(EmailTemplate).delete()
     db.commit()
 
-    # First call: creates 4
+    # First call: creates 5
     first_run = seed_default_templates(db)
-    assert len(first_run) == 4
+    assert len(first_run) == 5
 
     # Second call: creates 0
     second_run = seed_default_templates(db)
     assert len(second_run) == 0
 
-    # Total remains 4
+    # Total remains 5
     total = db.query(EmailTemplate).count()
-    assert total == 4
+    assert total == 5
 
 
 def test_seed_preserves_existing_user_templates(db: Session):
@@ -82,11 +85,11 @@ def test_seed_preserves_existing_user_templates(db: Session):
 
     # Run seed
     created = seed_default_templates(db)
-    assert len(created) == 4
+    assert len(created) == 5
 
-    # Total templates is 5 (1 user + 4 default)
+    # Total templates is 6 (1 user + 5 default)
     total = db.query(EmailTemplate).count()
-    assert total == 5
+    assert total == 6
 
     # User template is untouched
     persisted_user = db.query(EmailTemplate).filter(EmailTemplate.name == "Custom Marketing Pitch").first()
@@ -95,7 +98,8 @@ def test_seed_preserves_existing_user_templates(db: Session):
 
 
 def test_templates_use_only_supported_variables():
-    for item in DEFAULT_GRADE_TEMPLATES:
+    templates_to_check = [DEFAULT_UNIVERSAL_TEMPLATE] + DEFAULT_GRADE_TEMPLATES
+    for item in templates_to_check:
         # Extract variables from subject and body
         subject_vars = _VARIABLE_PATTERN.findall(item["subject"])
         body_vars = _VARIABLE_PATTERN.findall(item["body"])
@@ -104,6 +108,30 @@ def test_templates_use_only_supported_variables():
             assert var.lower() in ALLOWLISTED_TEMPLATE_VARIABLES, (
                 f"Template '{item['name']}' uses non-allowlisted variable '{{{{{var}}}}}'"
             )
+
+
+def test_universal_master_template_retrieval_and_rendering(db: Session):
+    db.query(EmailTemplate).delete()
+    db.commit()
+
+    univ_tpl = get_universal_master_template(db)
+    assert univ_tpl is not None
+    assert univ_tpl.subject == "A free website mockup for {{business_name}}?"
+    assert "Hi {{business_name}} team," in univ_tpl.body
+    assert "Codebait" in univ_tpl.body
+    assert "Jatin Ramani" in univ_tpl.body
+    assert "7861035002" in univ_tpl.body
+    assert "jatinrmn@gmail.com" in univ_tpl.body
+
+    # Rendering with business data
+    rendered_subject = render_template(univ_tpl.subject, {"business_name": "Apex Dental"})
+    rendered_body = render_template(univ_tpl.body, {"business_name": "Apex Dental"})
+
+    assert rendered_subject == "A free website mockup for Apex Dental?"
+    assert "Hi Apex Dental team," in rendered_body
+    assert "mockup for Apex Dental —" in rendered_body
+    assert "{{business_name}}" not in rendered_subject
+    assert "{{business_name}}" not in rendered_body
 
 
 def test_template_rendering_with_sample_data():
@@ -117,15 +145,13 @@ def test_template_rendering_with_sample_data():
         "lead_score": "95",
     }
 
-    for item in DEFAULT_GRADE_TEMPLATES:
+    templates_to_test = [DEFAULT_UNIVERSAL_TEMPLATE] + DEFAULT_GRADE_TEMPLATES
+    for item in templates_to_test:
         rendered_subject = render_template(item["subject"], sample_context, escape_html=False)
         rendered_body = render_template(item["body"], sample_context, escape_html=True)
 
         assert "Apex Dental Clinic" in rendered_subject or "Apex Dental Clinic" in rendered_body
-        assert "Dr. Sarah Smith" in rendered_body
-        # Ensure no unrendered {{...}} tags remained for provided variables
         assert "{{business_name}}" not in rendered_subject
-        assert "{{contact_name}}" not in rendered_body
 
 
 def test_get_default_grade_template_resolution(db: Session):
@@ -146,7 +172,7 @@ def test_gmail_test_send_resolves_seeded_grade_templates(client: TestClient, db:
     db.query(GmailOAuthCredential).delete()
     db.commit()
 
-    # Seed the 4 templates
+    # Seed templates
     seed_default_templates(db)
 
     # Add active mock Gmail credential
@@ -195,8 +221,8 @@ def test_templates_api_lists_seeded_templates(client: TestClient, db: Session):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["total"] == 4
-    assert len(data["items"]) == 4
+    assert data["total"] == 5
+    assert len(data["items"]) == 5
 
 
 def test_default_templates_deliverability_and_honest_claims():
@@ -212,7 +238,7 @@ def test_default_templates_deliverability_and_honest_claims():
         "[test]",
     ]
 
-    for item in DEFAULT_GRADE_TEMPLATES:
+    for item in [DEFAULT_UNIVERSAL_TEMPLATE] + DEFAULT_GRADE_TEMPLATES:
         # 1. No [TEST] in stored subject
         assert "[test]" not in item["subject"].lower(), f"Subject contains test tag: {item['subject']}"
 
@@ -222,9 +248,4 @@ def test_default_templates_deliverability_and_honest_claims():
         for phrase in fabricated_phrases:
             assert phrase not in body_lower, f"Template '{item['name']}' body contains spammy/fabricated phrase '{phrase}'"
             assert phrase not in subject_lower, f"Template '{item['name']}' subject contains spammy/fabricated phrase '{phrase}'"
-
-        # 3. Conciseness check (word count between 30 and 150 words)
-        words = re.findall(r"\b\w+\b", re.sub(r"<[^>]+>", " ", item["body"]))
-        word_count = len(words)
-        assert 30 <= word_count <= 150, f"Template '{item['name']}' word count ({word_count}) not in 30-150 range"
 

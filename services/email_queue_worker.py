@@ -348,18 +348,26 @@ def _execute_campaign_queue(campaign_id: int, sleep_fn=time.sleep) -> Dict[str, 
                 continue
 
             grade = (biz.lead_grade or "D").upper().strip()
-            tpl = grade_templates.get(grade, fallback_template)
+            # Primary: campaign.template (universal master template). Fallback: legacy grade_templates
+            tpl = campaign.template or grade_templates.get(grade, fallback_template)
             if not tpl:
                 recipient.status = RECIPIENT_FAILED
-                recipient.error_message = f"No email template assigned for Grade {grade}"
+                recipient.error_message = f"No email template assigned for campaign or Grade {grade}"
                 recipient.updated_at = datetime.now(timezone.utc)
                 campaign.failed_count = (campaign.failed_count or 0) + 1
                 db.commit()
                 continue
 
+            business_name = (biz.name or "").strip()
+            raw_contact = (recipient.recipient_name or "").strip()
+            if raw_contact and raw_contact.lower() != business_name.lower():
+                contact_name = raw_contact
+            else:
+                contact_name = f"{business_name} team" if business_name else "team"
+
             context = {
-                "business_name": biz.name or "",
-                "contact_name": recipient.recipient_name or biz.name or "",
+                "business_name": business_name,
+                "contact_name": contact_name,
                 "email": recipient.recipient_email or "",
                 "phone": biz.phone or "",
                 "website": biz.website or "",
