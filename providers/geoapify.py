@@ -37,7 +37,9 @@ def _request(params: dict) -> list:
 
     if response.status_code != 200:
         raise GeoapifyError(
-            f"Geoapify Error {response.status_code}: {response.text}"
+            f"Geoapify Error {response.status_code}: {response.text}",
+            status_code=response.status_code,
+            response_text=response.text,
         )
 
     return response.json().get("features", [])

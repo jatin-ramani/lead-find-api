@@ -4,6 +4,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -462,20 +463,112 @@ class ScanJob(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    city = Column(String)
-    category = Column(String)
+    city = Column(String, index=True)
+    category = Column(String)  # Display category/family representation
+    category_family = Column(String(100), nullable=True)
+    subcategories_json = Column(Text, nullable=True)  # JSON serialized list of subcategories
 
-    status = Column(String)
+    scan_radius_km = Column(Integer, default=25)
+    center_latitude = Column(Float, nullable=True)
+    center_longitude = Column(Float, nullable=True)
 
+    status = Column(String(30), default="Pending", index=True)  # Pending, Running, Paused, Completed, Failed, Cancelled
     progress = Column(Integer, default=0)
 
+    # Accurate continuous scanning metrics
+    total_cells = Column(Integer, default=0)
+    completed_cells = Column(Integer, default=0)
+    current_cell = Column(String, nullable=True)
+
+    total_search_units = Column(Integer, default=0)
+    completed_search_units = Column(Integer, default=0)
+    failed_search_units = Column(Integer, default=0)
+    coverage_progress = Column(Integer, default=0)
+    processed_progress = Column(Integer, default=0)
+
+    businesses_found = Column(Integer, default=0)
+    businesses_stored = Column(Integer, default=0)
+    businesses_skipped_no_contact = Column(Integer, default=0)
+    businesses_duplicates = Column(Integer, default=0)
+
+    # Backwards compatibility aliases
     total_businesses = Column(Integer, default=0)
     new_businesses = Column(Integer, default=0)
 
-    total_cells = Column(Integer, default=0)
-    completed_cells = Column(Integer, default=0)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    paused_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
 
-    current_cell = Column(String)
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    search_units = relationship(
+        "ScanSearchUnit",
+        back_populates="scan_job",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="asc(ScanSearchUnit.cell_index), asc(ScanSearchUnit.id)",
+    )
+
+
+class ScanSearchUnit(Base):
+    __tablename__ = "scan_search_units"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_job_id = Column(
+        Integer,
+        ForeignKey("scan_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    cell_index = Column(Integer, nullable=False)
+    cell_latitude = Column(Float, nullable=False)
+    cell_longitude = Column(Float, nullable=False)
+    cell_radius_meters = Column(Integer, nullable=False)
+    cell_label = Column(String(150), nullable=False)
+
+    category_key = Column(String(150), nullable=False)
+    status = Column(String(30), default="pending", nullable=False, index=True)  # pending, running, retry_wait, completed, failed, skipped
+
+    results_count = Column(Integer, default=0)
+    stored_count = Column(Integer, default=0)
+    skipped_no_contact_count = Column(Integer, default=0)
+    duplicates_count = Column(Integer, default=0)
+
+    attempt_count = Column(Integer, default=0, nullable=False)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    attempted_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    scan_job = relationship("ScanJob", back_populates="search_units")
+
+    __table_args__ = (
+        Index(
+            "ix_search_unit_job_cell_cat",
+            "scan_job_id",
+            "cell_index",
+            "category_key",
+            unique=True,
+        ),
+    )
 
 
 class WebsiteData(Base):

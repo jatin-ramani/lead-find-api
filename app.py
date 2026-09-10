@@ -189,15 +189,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     run_startup_migrations()
     log_startup_configuration()
 
-    # Recover any stale processing items and resume active email campaigns
+    # Recover any stale processing items and resume active email campaigns and scans
     try:
         from database.db import get_session
         from services.email_queue_worker import recover_stale_processing_recipients, resume_active_campaigns
+        from services.scan_worker import recover_stale_scans_on_startup
         with get_session() as db:
             recover_stale_processing_recipients(db)
             resume_active_campaigns(db)
+            recover_stale_scans_on_startup(db)
     except Exception as exc:
-        logger.warning("Error recovering email campaign queue on startup: %s", exc)
+        logger.warning("Error recovering background queues on startup: %s", exc)
 
     yield
 

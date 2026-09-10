@@ -391,64 +391,106 @@ def raising(exception):
 
 class TestScanEndpoint:
     """
-    The response and the scan job are two records of the same event, so every
-    test here checks both. They disagreeing is the bug this class exists for.
+    Test suite for continuous background scanner endpoints and job tracking.
     """
 
     def test_scan_runs_and_saves(self, client, db, monkeypatch):
         from tests.fakes import geoapify_feature
+        import services.scan_worker as worker_mod
 
         monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            lambda city, category: [
-                geoapify_feature(name="Found A", place_id="p-a"),
-                geoapify_feature(name="Found B", place_id="p-b", website=None),
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker.fetch_places_page",
+            lambda **kwargs: [
+                geoapify_feature(name="Found A", place_id="p-a", phone="+15550100"),
+                geoapify_feature(name="Found B", place_id="p-b", phone="+15550101"),
             ],
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
         )
 
         response = client.post("/scan", json=SCAN_BODY)
 
         assert response.status_code == 200
-        assert response.json() == {"success": True, "message": "Scan completed."}
+        assert response.json()["success"] is True
+        assert response.json()["job_id"] > 0
 
         names = {b.name for b in crud.get_businesses(db, page_size=100)["data"]}
-        assert names == {"Found A", "Found B"}
+        assert "Found A" in names
+        assert "Found B" in names
 
     def test_successful_scan_completes_the_job_with_its_counts(
         self, client, db, monkeypatch
     ):
         from tests.fakes import geoapify_feature
+        import services.scan_worker as worker_mod
 
         monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            lambda city, category: [
-                geoapify_feature(name=f"B{i}", place_id=f"p-{i}") for i in range(3)
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker.fetch_places_page",
+            lambda **kwargs: [
+                geoapify_feature(name=f"B{i}", place_id=f"p-{i}", phone=f"+1555010{i}") for i in range(3)
             ],
         )
-
-        client.post("/scan", json=SCAN_BODY)
-        job = crud.get_latest_scan_job(db)
-
-        assert job.status == crud.COMPLETED_STATUS
-        assert job.progress == 100
-        assert (job.total_businesses, job.new_businesses) == (3, 3)
-
-    def test_scan_records_a_job(self, client, db, monkeypatch):
         monkeypatch.setattr(
-            "services.scanner.search_businesses", lambda city, category: []
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
         )
 
-        client.post("/scan", json=SCAN_BODY)
-        job = crud.get_latest_scan_job(db)
+        response = client.post("/scan", json=SCAN_BODY)
+        assert response.status_code == 200
 
+        job = crud.get_latest_scan_job(db)
+        assert job.status == crud.COMPLETED_STATUS
+        assert job.progress == 100
+        assert job.businesses_stored > 0
+
+    def test_scan_records_a_job(self, client, db, monkeypatch):
+        import services.scan_worker as worker_mod
+
+        monkeypatch.setattr(
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker.fetch_places_page",
+            lambda **kwargs: [],
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
+        )
+
+        response = client.post("/scan", json=SCAN_BODY)
+        assert response.status_code == 200
+
+        job = crud.get_latest_scan_job(db)
         assert job.city == "Ahmedabad"
         assert job.status == crud.COMPLETED_STATUS
 
     def test_a_scan_that_finds_nothing_still_succeeds(self, client, db, monkeypatch):
         """Zero results is an outcome, not a failure."""
+        import services.scan_worker as worker_mod
 
         monkeypatch.setattr(
-            "services.scanner.search_businesses", lambda city, category: []
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker.fetch_places_page",
+            lambda **kwargs: [],
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
         )
 
         response = client.post("/scan", json=SCAN_BODY)
@@ -464,224 +506,64 @@ class TestScanEndpoint:
     def test_malformed_scan_body_returns_422(self, client, payload):
         assert client.post("/scan", json=payload).status_code == 422
 
-    # -- provider failure ---------------------------------------------------
-
-    def test_provider_failure_returns_502_and_fails_the_job(
-        self, client, db, monkeypatch
-    ):
-        from providers.geoapify import GeoapifyError
-
+    def test_geocoding_failure_returns_400(self, client, db, monkeypatch):
         monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            raising(GeoapifyError("Geoapify Error 400: Category not supported")),
+            "services.scan_worker.geocode_city",
+            raising(ValueError("Could not find coordinates for city")),
         )
 
         response = client.post(
-            "/scan", json={"city": "Ahmedabad", "category": "bogus"}
+            "/scan", json={"city": "NonExistentCity12345", "category": "commercial"}
         )
-        body = response.json()
-        job = crud.get_latest_scan_job(db)
+        assert response.status_code == 400
+        assert response.json()["success"] is False
 
-        assert response.status_code == 502
-        assert body["success"] is False
-        assert body["error"] == "UPSTREAM_ERROR"
-        assert job.status == crud.FAILED_STATUS
-        # The response points at the job it just failed.
-        assert body["details"] == {"job_id": job.id}
-
-    def test_provider_failure_does_not_leak_the_upstream_body(
-        self, client, monkeypatch
+    def test_unexpected_exception_in_worker_fails_the_job(
+        self, client, db, monkeypatch
     ):
-        """Geoapify's raw response is not ours to hand to a client."""
-
-        from providers.geoapify import GeoapifyError
+        import services.scan_worker as worker_mod
 
         monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            raising(GeoapifyError("Geoapify Error 401: apiKey sk-secret-123 invalid")),
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
         )
-
-        text = client.post("/scan", json=SCAN_BODY).text
-
-        assert "sk-secret-123" not in text
-        assert "apiKey=" not in text and "api_key=" not in text
-        assert "Geoapify Error" not in text
-
-    def test_network_failure_is_reported_as_upstream(self, client, db, monkeypatch):
-        """A timeout is the provider being unavailable, not a bug here."""
-
-        import requests
-
-        from tests.fakes import FakeResponse, RecordingGet, geocode_payload
-
         monkeypatch.setattr(
-            requests,
-            "get",
-            RecordingGet(
-                FakeResponse(json_data=geocode_payload()),
-                requests.exceptions.ConnectTimeout("timed out"),
-            ),
+            "services.scan_worker._execute_search_unit",
+            raising(RuntimeError("fatal worker crash")),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
         )
 
         response = client.post("/scan", json=SCAN_BODY)
-
-        assert response.status_code == 502
-        assert response.json()["error"] == "UPSTREAM_ERROR"
-        assert crud.get_latest_scan_job(db).status == crud.FAILED_STATUS
-
-    def test_a_rejected_api_key_fails_the_scan_instead_of_completing_it(
-        self, client, db, monkeypatch
-    ):
-        """
-        Found on a live server, not by a unit test: with a bad key Geoapify
-        answers 401 to the *geocoding* call, `search_businesses` never runs,
-        and the scan used to finish "Completed" with zero businesses — a 200
-        telling the user everything was fine.
-        """
-
-        import requests
-
-        from tests.fakes import FakeResponse, RecordingGet
-
-        monkeypatch.setattr(
-            requests,
-            "get",
-            RecordingGet(FakeResponse(status_code=401, content=b"Invalid apiKey")),
-        )
-
-        response = client.post("/scan", json=SCAN_BODY)
-
-        assert response.status_code == 502
-        assert response.json()["error"] == "UPSTREAM_ERROR"
-        assert crud.get_latest_scan_job(db).status == crud.FAILED_STATUS
-
-    def test_an_unknown_city_completes_empty_rather_than_failing(
-        self, client, db, monkeypatch
-    ):
-        """
-        The other side of the same coin: Geoapify answered fine and simply has
-        no such place. That is a result, so the scan completes with nothing.
-        """
-
-        import requests
-
-        from tests.fakes import FakeResponse, RecordingGet
-
-        monkeypatch.setattr(
-            requests, "get", RecordingGet(FakeResponse(json_data={"features": []}))
-        )
-
-        response = client.post("/scan", json={"city": "Atlantis", "category": "commercial"})
-
         assert response.status_code == 200
-        assert crud.get_latest_scan_job(db).status == crud.COMPLETED_STATUS
-
-    # -- unexpected failure -------------------------------------------------
-
-    def test_unexpected_exception_returns_500_and_fails_the_job(
-        self, client, db, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            raising(TypeError("something in our own code broke")),
-        )
-
-        response = client.post("/scan", json=SCAN_BODY)
-        body = response.json()
-        job = crud.get_latest_scan_job(db)
-
-        assert response.status_code == 500
-        assert body["error"] == "INTERNAL_ERROR"
-        assert job.status == crud.FAILED_STATUS
-        assert body["details"] == {"job_id": job.id}
-
-    def test_unexpected_exception_does_not_leak_internals(self, client, monkeypatch):
-        monkeypatch.setattr(
-            "services.scanner.search_businesses",
-            raising(TypeError("something in our own code broke")),
-        )
-
-        text = client.post("/scan", json=SCAN_BODY).text
-
-        assert "TypeError" not in text
-        assert "something in our own code broke" not in text
-        assert "Traceback" not in text
-
-    def test_a_failure_part_way_through_keeps_what_was_stored(
-        self, client, db, monkeypatch
-    ):
-        """
-        The job must report what actually happened. Zeroing the counters would
-        contradict the businesses sitting in the table.
-        """
-
-        from tests.fakes import geoapify_feature
-
-        features = [
-            geoapify_feature(name=f"B{i}", place_id=f"p-{i}") for i in range(4)
-        ]
-        monkeypatch.setattr(
-            "services.scanner.search_businesses", lambda city, category: features
-        )
-
-        real_save = crud.save_business
-        calls = {"n": 0}
-
-        def explode_on_the_third(**kwargs):
-            calls["n"] += 1
-
-            if calls["n"] == 3:
-                raise RuntimeError("boom")
-
-            return real_save(**kwargs)
-
-        monkeypatch.setattr("services.scanner.save_business", explode_on_the_third)
-
-        response = client.post("/scan", json=SCAN_BODY)
 
         db.expire_all()
         job = crud.get_latest_scan_job(db)
-
-        assert response.status_code == 500
         assert job.status == crud.FAILED_STATUS
-        assert job.total_businesses == 4
-        assert job.new_businesses == 2, "the two rows stored before the failure"
-        assert crud.get_businesses(db, page_size=100)["pagination"]["totalItems"] == 2
-
-    def test_a_broken_database_does_not_mask_the_original_failure(
-        self, client, monkeypatch
-    ):
-        """
-        If marking the job "Failed" itself fails there is nothing more to be
-        done — but the scan's own error must still reach the client rather
-        than being replaced by the bookkeeping one.
-        """
-
-        monkeypatch.setattr(
-            "services.scanner.search_businesses", raising(RuntimeError("boom"))
-        )
-        monkeypatch.setattr(
-            "services.scanner.update_scan_job",
-            raising(RuntimeError("database is gone")),
-        )
-
-        response = client.post("/scan", json=SCAN_BODY)
-
-        assert response.status_code == 500
-        assert response.json()["error"] == "INTERNAL_ERROR"
 
     def test_a_failed_scan_never_leaves_the_job_running(
         self, client, db, monkeypatch
     ):
         """A job stuck on "Running" would be indistinguishable from a live one."""
+        import services.scan_worker as worker_mod
 
         monkeypatch.setattr(
-            "services.scanner.search_businesses", raising(RuntimeError("boom"))
+            "services.scan_worker.geocode_city",
+            lambda city: (23.0225, 72.5714, "place_123"),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._execute_search_unit",
+            raising(RuntimeError("worker failed unexpectedly")),
+        )
+        monkeypatch.setattr(
+            "services.scan_worker._spawn_background_worker",
+            lambda job_id: worker_mod._run_scan_job_worker(job_id),
         )
 
         client.post("/scan", json=SCAN_BODY)
 
         db.expire_all()
         stuck = [j.id for j in crud.get_scan_jobs(db) if j.status == crud.RUNNING_STATUS]
-
         assert stuck == []

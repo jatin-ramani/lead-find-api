@@ -53,8 +53,8 @@ class TestSystemEndpoints:
         ]
 
         assert schema["openapi"].startswith("3.")
-        assert len(schema["paths"]) == 77
-        assert len(operations) == 101
+        assert len(schema["paths"]) == 83
+        assert len(operations) == 107
 
     def test_every_operation_is_documented(self, client):
         """Swagger is the contract; an undocumented endpoint is a regression."""
