@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0019"
+        assert revision == "0020"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
@@ -302,12 +302,12 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
                 )
             )
 
-        # 2. Upgrade from 0007 all the way to 0019
-        command.upgrade(alembic_cfg, "0019")
+        # 2. Upgrade from 0007 all the way to head (0020)
+        command.upgrade(alembic_cfg, "0020")
 
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0019"
+            assert rev == "0020"
 
             row = conn.execute(
                 text("SELECT name, is_favorite, lead_score, lead_grade FROM businesses WHERE place_id = 'place_acme_1'")
@@ -425,6 +425,59 @@ def test_migration_0019_downgrade_and_reupgrade(monkeypatch):
         inspector = inspect(engine)
         assert "next_attempt_at" in [c["name"] for c in inspector.get_columns("email_campaign_recipients")]
         assert "paused_reason" in [c["name"] for c in inspector.get_columns("email_campaigns")]
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0020_downgrade_and_reupgrade(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, inspect, text
+
+    database_path = migrations.BACKEND_DIR / "downgrade_0020_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        migrations.run_startup_migrations()
+
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        recip_indexes = [idx["name"] for idx in inspector.get_indexes("email_campaign_recipients")]
+        assert "ix_recipient_business_status" in recip_indexes
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Downgrade to 0019
+        command.downgrade(alembic_cfg, "0019")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0019"
+
+        inspector = inspect(engine)
+        recip_indexes = [idx["name"] for idx in inspector.get_indexes("email_campaign_recipients")]
+        assert "ix_recipient_business_status" not in recip_indexes
+
+        # Re-upgrade to 0020
+        command.upgrade(alembic_cfg, "0020")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0020"
+
+        inspector = inspect(engine)
+        recip_indexes = [idx["name"] for idx in inspector.get_indexes("email_campaign_recipients")]
+        assert "ix_recipient_business_status" in recip_indexes
 
     finally:
         if engine is not None:

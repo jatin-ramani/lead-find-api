@@ -12,6 +12,7 @@ Covers:
 - User template preservation (no overwriting or deletion)
 """
 
+from datetime import datetime, timezone
 import re
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -71,7 +72,9 @@ def test_seed_default_templates_is_idempotent(db: Session):
 def test_seed_preserves_existing_user_templates(db: Session):
     db.query(EmailTemplate).delete()
     db.commit()
+    db.expunge_all()
 
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     # Create a user custom template first
     user_tpl = EmailTemplate(
         name="Custom Marketing Pitch",
@@ -79,9 +82,12 @@ def test_seed_preserves_existing_user_templates(db: Session):
         subject="Hello from Custom {{business_name}}",
         body="Custom body for {{contact_name}}",
         is_archived=False,
+        created_at=now,
+        updated_at=now,
     )
     db.add(user_tpl)
     db.commit()
+    db.expunge_all()
 
     # Run seed
     created = seed_default_templates(db)
@@ -129,7 +135,7 @@ def test_universal_master_template_retrieval_and_rendering(db: Session):
 
     assert rendered_subject == "A free website mockup for Apex Dental?"
     assert "Hi Apex Dental team," in rendered_body
-    assert "mockup for Apex Dental —" in rendered_body
+    assert "for Apex Dental —" in rendered_body
     assert "{{business_name}}" not in rendered_subject
     assert "{{business_name}}" not in rendered_body
 
@@ -167,7 +173,7 @@ def test_get_default_grade_template_resolution(db: Session):
         assert tpl.is_archived is False
 
 
-def test_gmail_test_send_resolves_seeded_grade_templates(client: TestClient, db: Session):
+def test_gmail_test_send_resolves_universal_master_template(client: TestClient, db: Session):
     db.query(EmailTemplate).delete()
     db.query(GmailOAuthCredential).delete()
     db.commit()
@@ -194,28 +200,26 @@ def test_gmail_test_send_resolves_seeded_grade_templates(client: TestClient, db:
         "/integrations/gmail/test-send",
         json={
             "recipient_email": "test-recipient@example.com",
-            "template_grades": ["A", "B", "C", "D"],
         },
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["sent"] == 4
-    assert len(data["results"]) == 4
+    assert data["sent"] == 1
+    assert len(data["results"]) == 1
 
-    # Verify subjects matched the seeded templates
-    subjects = [r["subject"] for r in data["results"]]
-    assert any("Introduction regarding" in s for s in subjects)  # Grade A
-    assert any("Connecting with" in s for s in subjects)         # Grade B
-    assert any("Quick question for" in s for s in subjects)      # Grade C
-    assert any("Inquiry for" in s for s in subjects)             # Grade D
+    # Verify subject matched the universal master template
+    result = data["results"][0]
+    assert "[TEST] A free website mockup for Test Business?" == result["subject"]
 
 
 def test_templates_api_lists_seeded_templates(client: TestClient, db: Session):
     db.query(EmailTemplate).delete()
     db.commit()
+    db.expunge_all()
 
     seed_default_templates(db)
+    db.commit()
 
     resp = client.get("/templates")
     assert resp.status_code == 200

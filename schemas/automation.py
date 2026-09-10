@@ -195,6 +195,7 @@ class CityStatItem(BaseModel):
     total_leads: int
     eligible_leads: int
     ineligible_leads: int
+    already_sent_leads: int = 0
 
 
 class CityStatListResponse(BaseModel):
@@ -206,6 +207,7 @@ class GradeStatDetail(BaseModel):
     total: int
     eligible: int
     ineligible: int
+    already_sent: int = 0
 
 
 class CityGradeStatsResponse(BaseModel):
@@ -214,6 +216,7 @@ class CityGradeStatsResponse(BaseModel):
     total_leads: int
     email_eligible_leads: int
     ineligible_leads: int
+    already_sent_leads: int = 0
     grades: Dict[str, GradeStatDetail]
 
 

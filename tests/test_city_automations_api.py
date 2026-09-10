@@ -301,7 +301,7 @@ class TestCityAutomationEndpoints:
             "name": "Jaipur Master Automation",
             "template": {
                 "subject": "A free website mockup for {{business_name}}?",
-                "body": "Hi {{business_name}} team,\n\nWe're Codebait...\n\nBest,\nJatin Ramani",
+                "body": "<p>Hi {{business_name}} team,</p><p>We're <strong>Codebait</strong>...</p><p>Best,<br><strong>Jatin Ramani</strong></p>",
                 "name": "Jaipur Master Template",
             },
         }
@@ -311,4 +311,87 @@ class TestCityAutomationEndpoints:
         assert data["city"] == "Jaipur"
         assert data["recipient_count"] == 2
         assert data["status"] == "running"
+
+    def test_sent_lead_exclusion_rules(self, client, db):
+        # 1. Setup London leads with various states
+        # Lead 1: Already sent via CampaignRecipient
+        b_sent = Business(name="London Sent Co", city="London", email="sent@london.example", lead_grade="A", lead_score=95)
+        # Lead 2: Failed send (should remain eligible)
+        b_failed = Business(name="London Failed Co", city="London", email="failed@london.example", lead_grade="B", lead_score=75)
+        # Lead 3: Pending in a draft/running campaign (should remain eligible for new query)
+        b_pending = Business(name="London Pending Co", city="London", email="pending@london.example", lead_grade="C", lead_score=50)
+        # Lead 4: Skipped (should remain eligible)
+        b_skipped = Business(name="London Skipped Co", city="London", email="skipped@london.example", lead_grade="D", lead_score=25)
+        # Lead 5: Fresh lead with email (eligible)
+        b_fresh = Business(name="London Fresh Co", city="London", email="fresh@london.example", lead_grade="A", lead_score=90)
+        # Lead 6: Lead with missing email
+        b_no_email = Business(name="London No Email Co", city="London", email=None, lead_grade="B", lead_score=60)
+
+        db.add_all([b_sent, b_failed, b_pending, b_skipped, b_fresh, b_no_email])
+        db.commit()
+
+        # Create past campaign and recipients
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        hist_tpl = EmailTemplate(name="Hist Tpl", subject="Sub", body="Body", is_archived=False, created_at=now, updated_at=now)
+        db.add(hist_tpl)
+        db.flush()
+        camp = EmailCampaign(name="Historical Campaign", template_id=hist_tpl.id, status="completed", filter_criteria_json="{}", created_at=now, updated_at=now)
+        db.add(camp)
+        db.commit()
+
+        r_sent1 = EmailCampaignRecipient(campaign_id=camp.id, business_id=b_sent.id, recipient_email=b_sent.email, status="sent", created_at=now, updated_at=now)
+        # Create second historical campaign for duplicate send test
+        camp2 = EmailCampaign(name="Historical Campaign 2", template_id=hist_tpl.id, status="completed", filter_criteria_json="{}", created_at=now, updated_at=now)
+        db.add(camp2)
+        db.flush()
+        # Duplicate successful send on same business across campaigns to test deduplication
+        r_sent2 = EmailCampaignRecipient(campaign_id=camp2.id, business_id=b_sent.id, recipient_email=b_sent.email, status="sent", created_at=now, updated_at=now)
+        r_failed = EmailCampaignRecipient(campaign_id=camp.id, business_id=b_failed.id, recipient_email=b_failed.email, status="failed", created_at=now, updated_at=now)
+        r_pending = EmailCampaignRecipient(campaign_id=camp.id, business_id=b_pending.id, recipient_email=b_pending.email, status="pending", created_at=now, updated_at=now)
+        r_skipped = EmailCampaignRecipient(campaign_id=camp.id, business_id=b_skipped.id, recipient_email=b_skipped.email, status="skipped", created_at=now, updated_at=now)
+
+        db.add_all([r_sent1, r_sent2, r_failed, r_pending, r_skipped])
+        db.commit()
+
+        # 2. Check /automations/cities
+        res_cities = client.get("/automations/cities")
+        assert res_cities.status_code == 200
+        cities_map = {c["city"]: c for c in res_cities.json()["items"]}
+        assert "London" in cities_map
+        london = cities_map["London"]
+        # Total: 6, Already Sent: 1, Eligible: 4 (b_failed, b_pending, b_skipped, b_fresh), Ineligible: 1 (b_no_email)
+        assert london["total_leads"] == 6
+        assert london["already_sent_leads"] == 1
+        assert london["eligible_leads"] == 4
+        assert london["ineligible_leads"] == 1
+
+        # 3. Check /automations/city-stats?city=London
+        res_stats = client.get("/automations/city-stats?city=London")
+        assert res_stats.status_code == 200
+        stats = res_stats.json()
+        assert stats["total_leads"] == 6
+        assert stats["already_sent_leads"] == 1
+        assert stats["email_eligible_leads"] == 4
+        assert stats["ineligible_leads"] == 1
+        assert stats["grades"]["A"]["total"] == 2
+        assert stats["grades"]["A"]["eligible"] == 1  # b_fresh is eligible, b_sent is already sent
+        assert stats["grades"]["A"]["already_sent"] == 1
+
+        # 4. Start new city automation for London and verify recipient snapshot excludes b_sent
+        b_sent_id = b_sent.id
+        res_start = client.post(
+            "/automations/start-city-automation",
+            json={
+                "city": "London",
+                "name": "London Hardening Test Run",
+            },
+        )
+        assert res_start.status_code == 201
+        run_data = res_start.json()["data"]
+        # Exactly 4 recipients are targeted (b_sent excluded)
+        assert run_data["recipient_count"] == 4
+
+        # Verify historical sent records are intact
+        assert db.query(EmailCampaignRecipient).filter(EmailCampaignRecipient.business_id == b_sent_id, EmailCampaignRecipient.status == "sent").count() == 2
+
 

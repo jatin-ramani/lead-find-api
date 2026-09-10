@@ -22,22 +22,23 @@ DEFAULT_UNIVERSAL_TEMPLATE = {
     "description": "Master cold email outreach template for Codebait website mockup offer.",
     "subject": "A free website mockup for {{business_name}}?",
     "body": (
-        "Hi {{business_name}} team,\n\n"
-        "A strong website can completely change how a potential customer sees a business before they ever make a call.\n\n"
-        "We're Codebait, a web design studio helping local businesses build modern, high-converting websites — "
-        "from complete redesigns to AI-powered features like smart chatbots and automated booking.\n\n"
-        "Instead of sending you a long sales pitch, we'd rather show you what your business could look like online.\n\n"
-        "Reply to this email and we'll create a free, no-obligation website mockup for {{business_name}} — "
-        "completely free, with no commitment required.\n\n"
-        "If you like what you see, we can talk about taking it further. If not, no problem.\n\n"
-        "Would you be open to seeing the mockup?\n\n"
-        "Best,\n"
-        "Jatin Ramani\n"
-        "Founder, Codebait\n"
-        "7861035002\n"
-        "jatinrmn@gmail.com"
+        "<p>Hi {{business_name}} team,</p>\n\n"
+        "<p>A strong website can completely change how a potential customer sees a business before they ever make a call.</p>\n\n"
+        "<p>We're <strong>Codebait</strong>, a web design studio helping local businesses build modern, high-converting websites — "
+        "from complete redesigns to AI-powered features like smart chatbots and automated booking.</p>\n\n"
+        "<p>Instead of sending you a long sales pitch, we'd rather <strong>show you what your business could look like online</strong>.</p>\n\n"
+        "<p>Reply to this email and we'll create a <strong>free, no-obligation website mockup</strong> for {{business_name}} — "
+        "completely free, with no commitment required.</p>\n\n"
+        "<p>If you like what you see, we can talk about taking it further. If not, no problem.</p>\n\n"
+        "<p><strong>Would you be open to seeing the mockup?</strong></p>\n\n"
+        "<p>Best,<br>\n"
+        "<strong>Jatin Ramani</strong><br>\n"
+        "Founder, Codebait<br>\n"
+        "7861035002<br>\n"
+        "jatinrmn@gmail.com</p>"
     ),
 }
+
 
 # Deterministic default email templates for Lead Grades A, B, C, D (retained for historical reference)
 DEFAULT_GRADE_TEMPLATES = [
@@ -145,8 +146,8 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
                 EmailTemplate.is_archived.is_(False),
                 or_(
                     EmailTemplate.name == item["name"],
-                    EmailTemplate.name.ilike(f"Grade {grade} — %"),
-                    EmailTemplate.name.ilike(f"Grade {grade} - %"),
+                    EmailTemplate.name.like(f"Grade {grade}%"),
+                    EmailTemplate.name.ilike(f"Grade {grade}%"),
                     EmailTemplate.name.ilike(f"%(Grade {grade})%"),
                 ),
             )
@@ -210,6 +211,9 @@ def get_universal_master_template(db: Session) -> EmailTemplate:
     return tpl
 
 
+get_or_create_master_template = get_universal_master_template
+
+
 def get_default_grade_template(db: Session, grade: str) -> Optional[EmailTemplate]:
     """Fetch the active template associated with a specific lead grade (A, B, C, D)."""
     norm_grade = grade.upper().strip()
@@ -218,8 +222,8 @@ def get_default_grade_template(db: Session, grade: str) -> Optional[EmailTemplat
         .filter(
             EmailTemplate.is_archived.is_(False),
             or_(
-                EmailTemplate.name.ilike(f"Grade {norm_grade} — %"),
-                EmailTemplate.name.ilike(f"Grade {norm_grade} - %"),
+                EmailTemplate.name.like(f"Grade {norm_grade}%"),
+                EmailTemplate.name.ilike(f"Grade {norm_grade}%"),
                 EmailTemplate.name.ilike(f"%(Grade {norm_grade})%"),
                 EmailTemplate.name.ilike(f"%Grade {norm_grade}%"),
                 EmailTemplate.description.ilike(f"%Grade {norm_grade}%"),

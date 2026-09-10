@@ -28,7 +28,8 @@ from services.activity_service import (
     create_activity,
 )
 from services.email_template_service import get_template
-from services.template_engine import render_template
+from services.template_engine import html_to_plain_text, render_template
+
 
 logger = logging.getLogger(__name__)
 
@@ -531,9 +532,16 @@ def execute_campaign_batch(
             continue
 
         # Assemble template context
+        biz_name = (biz.name or "").strip()
+        raw_contact = (recip.recipient_name or "").strip()
+        if raw_contact and raw_contact.lower() != biz_name.lower():
+            contact_name = raw_contact
+        else:
+            contact_name = f"{biz_name} team" if biz_name else "team"
+
         context = {
-            "business_name": biz.name or "",
-            "contact_name": recip.recipient_name or "",
+            "business_name": biz_name,
+            "contact_name": contact_name,
             "email": recip.recipient_email or "",
             "phone": biz.phone or "",
             "website": biz.website or "",
@@ -545,13 +553,14 @@ def execute_campaign_batch(
 
         rendered_subject = render_template(template.subject, context, escape_html=False)
         rendered_body = render_template(template.body, context, escape_html=True)
+        plain_body = html_to_plain_text(rendered_body) if ("<p" in rendered_body or "<br" in rendered_body) else rendered_body
 
         try:
             send_result = provider.send_email(
                 to_email=recip.recipient_email,
                 subject=rendered_subject,
                 html_content=rendered_body,
-                text_content=rendered_body,
+                text_content=plain_body,
                 metadata={
                     "db": db,
                     "campaign_id": campaign.id,
@@ -559,6 +568,7 @@ def execute_campaign_batch(
                     "business_id": recip.business_id,
                 },
             )
+
         except Exception as exc:
             logger.exception("Campaign recipient dispatch exception for recip ID %d", recip.id)
             from providers.email_provider import EmailSendResult

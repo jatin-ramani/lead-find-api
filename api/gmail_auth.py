@@ -320,7 +320,7 @@ from services.template_engine import render_template
 
 class GmailTestSendRequest(BaseModel):
     recipient_email: str = Field(..., description="Destination email address for test sending")
-    template_grades: List[str] = Field(default=["A", "B", "C", "D"], description="List of grades to test (A, B, C, D)")
+    template_grades: Optional[List[str]] = Field(default=None, description="Optional list of grades (legacy/backwards compatibility)")
 
 
 class GmailTestItemResult(BaseModel):
@@ -346,13 +346,16 @@ class GmailTestSendResponse(BaseModel):
     "/test-send",
     response_model=GmailTestSendResponse,
     summary="Send Test Email(s) via Gmail Provider",
-    description="Sends test emails for selected grades to an entered recipient email using safe sample data.",
+    description="Sends test emails using the Universal Master Cold Email template to an entered recipient email using safe sample data.",
 )
 def gmail_test_send(
     payload: GmailTestSendRequest,
     db: Session = Depends(get_db),
     _admin: None = Depends(verify_admin),
 ) -> GmailTestSendResponse:
+    from services.email_template_service import get_universal_master_template
+    from services.template_engine import html_to_plain_text
+
     # 1. Validate entered email address format
     cleaned_email = (payload.recipient_email or "").strip()
     if (
@@ -368,14 +371,13 @@ def gmail_test_send(
             detail=f"Invalid test recipient email address format: '{cleaned_email[:50]}'",
         )
 
-    # 2. Require at least one template grade
-    if not payload.template_grades:
+    if payload.template_grades is not None and len(payload.template_grades) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one template grade must be selected for test sending.",
+            detail="At least one template grade must be selected.",
         )
 
-    # 3. Check provider connection if configured for Gmail
+    # 2. Check provider connection if configured for Gmail
     if settings.EMAIL_PROVIDER == "gmail":
         active_cred = (
             db.query(GmailOAuthCredential)
@@ -390,16 +392,23 @@ def gmail_test_send(
 
     provider = get_email_provider()
 
-    grade_scores = {"A": "95", "B": "78", "C": "52", "D": "28"}
+    # Load Universal Master Cold Email from server-side database/default
+    master_tpl = get_universal_master_template(db)
+    raw_subject = master_tpl.subject
+    raw_body = master_tpl.body
+
     results: List[GmailTestItemResult] = []
     sent_count = 0
     failed_count = 0
     skipped_count = 0
     quota_exhausted = False
 
-    for grade_raw in payload.template_grades:
-        grade = grade_raw.upper().strip()
-        if grade not in {"A", "B", "C", "D"}:
+    # Determine targets (default to single universal test send)
+    target_grades = payload.template_grades if (payload.template_grades and len(payload.template_grades) > 0) else ["Universal"]
+
+    for grade_raw in target_grades:
+        grade = grade_raw.strip()
+        if not grade:
             continue
 
         # If daily quota already exhausted during previous template in this loop, skip remainder
@@ -408,7 +417,7 @@ def gmail_test_send(
                 GmailTestItemResult(
                     grade=grade,
                     status="skipped",
-                    subject=f"[TEST - Grade {grade}] Outreach",
+                    subject=f"[TEST] {raw_subject}",
                     message_id=None,
                     error=f"Daily sending limit reached ({settings.EMAIL_DAILY_QUOTA_LIMIT}/{settings.EMAIL_DAILY_QUOTA_LIMIT} sent today). Quota resets at 00:00 UTC.",
                     sent_at=None,
@@ -416,29 +425,6 @@ def gmail_test_send(
             )
             skipped_count += 1
             continue
-
-        # Resolve Grade template from stored EmailTemplate records or server-side default
-        tpl_record = (
-            db.query(EmailTemplate)
-            .filter(
-                EmailTemplate.is_archived.is_(False),
-                or_(
-                    EmailTemplate.name.ilike(f"%(Grade {grade})%"),
-                    EmailTemplate.name.ilike(f"%Grade {grade}%"),
-                    EmailTemplate.description.ilike(f"%Grade {grade}%"),
-                ),
-            )
-            .order_by(EmailTemplate.updated_at.desc(), EmailTemplate.id.desc())
-            .first()
-        )
-        if tpl_record and tpl_record.subject and tpl_record.body:
-            raw_subject = tpl_record.subject
-            raw_body = tpl_record.body
-        else:
-            ai_provider = get_ai_provider()
-            std_tpl = ai_provider.generate_single_grade_template(grade=grade, city="Sample City")
-            raw_subject = std_tpl.get("subject") or f"Outreach for {{{{business_name}}}}"
-            raw_body = std_tpl.get("body") or f"Hello {{{{contact_name}}}},\n\nConnecting from Sample City."
 
         # Assemble safe sample data
         context = {
@@ -448,14 +434,17 @@ def gmail_test_send(
             "phone": "+91 9876543210",
             "website": "https://example.com",
             "lead_status": "new",
-            "lead_score": grade_scores.get(grade, "50"),
+            "lead_score": "85",
             "follow_up_title": "Test Follow-up",
             "follow_up_due_at": "Tomorrow at 10:00 AM",
         }
 
         rendered_subject = render_template(raw_subject, context, escape_html=False)
-        rendered_body = render_template(raw_body, context, escape_html=True)
-        test_subject = f"[TEST - Grade {grade}] {rendered_subject}"
+        rendered_html = render_template(raw_body, context, escape_html=True)
+        plain_text = html_to_plain_text(rendered_html)
+
+        prefix = f"[TEST - Grade {grade}]" if grade in {"A", "B", "C", "D"} else "[TEST]"
+        test_subject = f"{prefix} {rendered_subject}"
 
         now_str = datetime.now(timezone.utc).isoformat()
 
@@ -463,8 +452,8 @@ def gmail_test_send(
         send_result = provider.send_email(
             to_email=cleaned_email,
             subject=test_subject,
-            html_content=rendered_body,
-            text_content=rendered_body,
+            html_content=rendered_html,
+            text_content=plain_text,
             metadata={"db": db, "is_test": True, "grade": grade},
         )
 

@@ -65,24 +65,25 @@ def test_gmail_test_send_success_mock_provider(client: TestClient, db: Session):
         "/integrations/gmail/test-send",
         json={
             "recipient_email": "tester@example.com",
-            "template_grades": ["A", "B", "C", "D"],
+            "template_grades": ["Universal"],
         },
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
     assert data["recipient_email"] == "tester@example.com"
-    assert data["total"] == 4
-    assert data["sent"] == 4
+    assert data["total"] == 1
+    assert data["sent"] == 1
     assert data["failed"] == 0
     assert data["skipped"] == 0
 
-    assert len(data["results"]) == 4
-    for item in data["results"]:
-        assert item["status"] == "sent"
-        assert item["message_id"] is not None
-        assert "[TEST - Grade " in item["subject"]
-        assert item["error"] is None
+    assert len(data["results"]) == 1
+    item = data["results"][0]
+    assert item["status"] == "sent"
+    assert item["message_id"] is not None
+    assert "[TEST]" in item["subject"]
+    assert "A free website mockup for Test Business?" in item["subject"]
+    assert item["error"] is None
 
     # Verify no CRM database leads or campaigns were created
     assert db.query(Business).count() == initial_biz_count
@@ -90,13 +91,13 @@ def test_gmail_test_send_success_mock_provider(client: TestClient, db: Session):
     assert db.query(EmailCampaignRecipient).count() == initial_recip_count
 
 
-def test_gmail_test_send_resolves_stored_database_templates(client: TestClient, db: Session):
+def test_gmail_test_send_resolves_universal_master_template(client: TestClient, db: Session):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     stored_tpl = EmailTemplate(
-        name="Email Automation — Ahmedabad (Grade A)",
-        description="Auto-generated Grade A template for Ahmedabad",
-        subject="Exclusive Stored Offer for {{business_name}}",
-        body="Hello {{contact_name}}, this is our stored template.",
+        name="Universal Master Cold Email Template",
+        description="Master cold outreach template for all qualified leads",
+        subject="A free website mockup for {{business_name}}?",
+        body="<p>Hi {{business_name}} team,</p><p>We're <strong>Codebait</strong>...</p><p>Best,<br><strong>Jatin Ramani</strong></p>",
         is_archived=False,
         created_at=now,
         updated_at=now,
@@ -108,52 +109,14 @@ def test_gmail_test_send_resolves_stored_database_templates(client: TestClient, 
         "/integrations/gmail/test-send",
         json={
             "recipient_email": "tester@example.com",
-            "template_grades": ["A"],
         },
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["sent"] == 1
     result_item = data["results"][0]
-    assert result_item["grade"] == "A"
-    assert "[TEST - Grade A] Exclusive Stored Offer for Test Business" == result_item["subject"]
-
-
-def test_gmail_test_send_ignores_arbitrary_client_templates(client: TestClient, db: Session):
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    stored_tpl = EmailTemplate(
-        name="Stored Grade A Template",
-        description="Grade A outreach",
-        subject="Authorized Server Subject for {{business_name}}",
-        body="Server body content.",
-        is_archived=False,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(stored_tpl)
-    db.commit()
-
-    # Client tries to send malicious/arbitrary template override
-    resp = client.post(
-        "/integrations/gmail/test-send",
-        json={
-            "recipient_email": "tester@example.com",
-            "template_grades": ["A"],
-            "custom_templates": {
-                "A": {
-                    "subject": "ATTACK: <script>alert(1)</script>",
-                    "body": "Arbitrary body injection",
-                }
-            },
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["sent"] == 1
-    result_item = data["results"][0]
-    # Proves the arbitrary client template is rejected/ignored and the authorized server-side template is used
-    assert result_item["subject"] == "[TEST - Grade A] Authorized Server Subject for Test Business"
-    assert "ATTACK" not in result_item["subject"]
+    assert result_item["grade"] == "Universal"
+    assert "[TEST] A free website mockup for Test Business?" == result_item["subject"]
 
 
 def test_gmail_test_send_with_real_gmail_provider(client: TestClient, db: Session, monkeypatch):

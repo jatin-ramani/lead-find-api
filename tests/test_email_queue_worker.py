@@ -535,15 +535,15 @@ def test_sent_recipients_excluded_from_remaining_list_and_preserved_in_history(d
     assert rec1.id in log_ids
     assert rec2.id in log_ids
 
-    # 4. Campaign Scope Isolation: Start a separate Campaign B for Austin
+    # 4. Campaign Scope Exclusion: Start a subsequent Campaign B for Austin
     rep_b = start_city_automation(db, city="Austin", templates=default_templates_dict, execute_now=False)
     camp_b_id = rep_b["id"]
     assert camp_b_id != camp_a_id
     rep_b_report = get_city_automation_report(db, camp_b_id)
-    # Campaign B has its own independent 4 recipients
-    assert rep_b_report["recipient_count"] == 4
-    assert rep_b_report["remaining_count"] == 4
-    assert len(rep_b_report["remaining_recipients"]) == 4
+    # The 2 businesses already successfully sent in Campaign A are excluded, leaving 2 remaining eligible
+    assert rep_b_report["recipient_count"] == 2
+    assert rep_b_report["remaining_count"] == 2
+    assert len(rep_b_report["remaining_recipients"]) == 2
 
 
 def test_all_grades_receive_same_universal_master_cold_email(db: Session, sample_businesses):

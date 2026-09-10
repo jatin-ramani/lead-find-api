@@ -16,7 +16,14 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from database.crud import HAS_EMAIL, NO_EMAIL
-from database.models import Business, BusinessActivity, EmailCampaign, EmailCampaignRecipient, EmailTemplate
+from database.models import (
+    Business,
+    BusinessActivity,
+    EmailAutomationExecution,
+    EmailCampaign,
+    EmailCampaignRecipient,
+    EmailTemplate,
+)
 from providers.ai_provider import get_ai_provider
 from providers.email_provider import get_email_provider
 from services.activity_service import (
@@ -30,6 +37,7 @@ from services.activity_service import (
 )
 from services.email_template_service import create_template
 from services.template_engine import render_template
+from sqlalchemy import exists, not_
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +58,22 @@ RECIPIENT_FAILED = "failed"
 RECIPIENT_CANCELLED = "cancelled"
 RECIPIENT_SKIPPED = "skipped"
 
+# Canonical server-side queries for successfully emailed leads
+from sqlalchemy import select
+
+campaign_sent_subquery = select(1).where(
+    EmailCampaignRecipient.business_id == Business.id,
+    EmailCampaignRecipient.status == RECIPIENT_SENT,
+).correlate(Business).exists()
+
+automation_sent_subquery = select(1).where(
+    EmailAutomationExecution.business_id == Business.id,
+    EmailAutomationExecution.status == "sent",
+).correlate(Business).exists()
+
+IS_ALREADY_SENT = or_(campaign_sent_subquery, automation_sent_subquery)
+IS_ELIGIBLE = and_(HAS_EMAIL, not_(IS_ALREADY_SENT))
+
 
 # ============================================================================
 # 1. City & Lead Grade Analytics
@@ -58,13 +82,15 @@ RECIPIENT_SKIPPED = "skipped"
 def get_available_cities(db: Session) -> List[Dict[str, Any]]:
     """
     Return distinct list of cities from accessible business records
-    with total lead counts and email-eligible lead counts.
+    with total lead counts, already-sent lead counts, and email-eligible lead counts.
+    Strictly excludes previously successfully emailed businesses from eligible leads.
     """
     results = (
         db.query(
             Business.city,
             func.count(Business.id).label("total_leads"),
-            func.count(case((HAS_EMAIL, Business.id), else_=None)).label("eligible_leads"),
+            func.count(case((IS_ALREADY_SENT, Business.id), else_=None)).label("already_sent_leads"),
+            func.count(case((IS_ELIGIBLE, Business.id), else_=None)).label("eligible_leads"),
         )
         .filter(Business.city.isnot(None), func.trim(Business.city) != "")
         .group_by(Business.city)
@@ -76,8 +102,9 @@ def get_available_cities(db: Session) -> List[Dict[str, Any]]:
         {
             "city": row.city.strip(),
             "total_leads": int(row.total_leads),
+            "already_sent_leads": int(row.already_sent_leads),
             "eligible_leads": int(row.eligible_leads),
-            "ineligible_leads": int(row.total_leads) - int(row.eligible_leads),
+            "ineligible_leads": max(0, int(row.total_leads) - int(row.eligible_leads) - int(row.already_sent_leads)),
         }
         for row in results
         if row.city and row.city.strip()
@@ -86,21 +113,22 @@ def get_available_cities(db: Session) -> List[Dict[str, Any]]:
 
 def get_city_lead_grade_stats(db: Session, city: str) -> Dict[str, Any]:
     """
-    Return comprehensive lead counts and grade distribution (A, B, C, D) for a specific city.
-    Identifies total leads vs email-eligible leads per grade.
+    Return comprehensive lead counts, already-sent counts, and grade distribution (A, B, C, D) for a specific city.
+    Identifies total leads vs already-sent leads vs email-eligible leads per grade.
     """
     clean_city = city.strip()
     if not clean_city:
         return {
             "city": "",
             "total_leads": 0,
+            "already_sent_leads": 0,
             "email_eligible_leads": 0,
             "ineligible_leads": 0,
             "grades": {
-                "A": {"total": 0, "eligible": 0, "ineligible": 0},
-                "B": {"total": 0, "eligible": 0, "ineligible": 0},
-                "C": {"total": 0, "eligible": 0, "ineligible": 0},
-                "D": {"total": 0, "eligible": 0, "ineligible": 0},
+                "A": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+                "B": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+                "C": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+                "D": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
             },
         }
 
@@ -114,7 +142,8 @@ def get_city_lead_grade_stats(db: Session, city: str) -> Dict[str, Any]:
         db.query(
             normalized_grade.label("grade"),
             func.count(Business.id).label("total"),
-            func.count(case((HAS_EMAIL, Business.id), else_=None)).label("eligible"),
+            func.count(case((IS_ALREADY_SENT, Business.id), else_=None)).label("already_sent"),
+            func.count(case((IS_ELIGIBLE, Business.id), else_=None)).label("eligible"),
         )
         .filter(func.lower(func.trim(Business.city)) == clean_city.lower())
         .group_by(normalized_grade)
@@ -122,13 +151,14 @@ def get_city_lead_grade_stats(db: Session, city: str) -> Dict[str, Any]:
     )
 
     grades_map: Dict[str, Dict[str, int]] = {
-        "A": {"total": 0, "eligible": 0, "ineligible": 0},
-        "B": {"total": 0, "eligible": 0, "ineligible": 0},
-        "C": {"total": 0, "eligible": 0, "ineligible": 0},
-        "D": {"total": 0, "eligible": 0, "ineligible": 0},
+        "A": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+        "B": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+        "C": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
+        "D": {"total": 0, "eligible": 0, "already_sent": 0, "ineligible": 0},
     }
 
     total_leads = 0
+    total_already_sent = 0
     total_eligible = 0
 
     for row in grade_rows:
@@ -136,20 +166,25 @@ def get_city_lead_grade_stats(db: Session, city: str) -> Dict[str, Any]:
         if g not in grades_map:
             g = "D"
         tot = int(row.total)
+        sent = int(row.already_sent)
         elig = int(row.eligible)
         grades_map[g]["total"] += tot
+        grades_map[g]["already_sent"] += sent
         grades_map[g]["eligible"] += elig
-        grades_map[g]["ineligible"] += (tot - elig)
+        grades_map[g]["ineligible"] += max(0, tot - sent - elig)
         total_leads += tot
+        total_already_sent += sent
         total_eligible += elig
 
     return {
         "city": clean_city,
         "total_leads": total_leads,
+        "already_sent_leads": total_already_sent,
         "email_eligible_leads": total_eligible,
-        "ineligible_leads": total_leads - total_eligible,
+        "ineligible_leads": max(0, total_leads - total_already_sent - total_eligible),
         "grades": grades_map,
     }
+
 
 
 # ============================================================================
@@ -279,16 +314,17 @@ def start_city_automation(
     db.add(campaign)
     db.flush()
 
-    # 3. Snapshot eligible businesses in the city
+    # 3. Snapshot eligible businesses in the city (strictly excluding already successfully sent leads)
     eligible_businesses = (
         db.query(Business)
         .filter(
             func.lower(func.trim(Business.city)) == clean_city.lower(),
-            HAS_EMAIL,
+            IS_ELIGIBLE,
         )
         .order_by(Business.id.asc())
         .all()
     )
+
 
     recipients: List[EmailCampaignRecipient] = []
     for biz in eligible_businesses:
@@ -325,20 +361,11 @@ def start_city_automation(
             },
         )
 
-    # 4. If immediate execution requested and not scheduled, mark running and trigger queue worker
+    # 4. If immediate execution requested and not scheduled, mark running
     if execute_now and not scheduled_at:
         campaign.status = STATUS_RUNNING
         campaign.started_at = now
         db.commit()
-        # Launch background execution task in background thread
-        import asyncio
-        try:
-            from services.email_queue_worker import process_campaign_queue
-            loop = asyncio.get_running_loop()
-            loop.create_task(asyncio.to_thread(process_campaign_queue, campaign.id))
-        except RuntimeError:
-            # If no running loop in current thread, caller/FastAPI BackgroundTasks or direct dispatch will run it
-            pass
 
     return get_city_automation_report(db, campaign.id)
 

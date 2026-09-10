@@ -82,3 +82,25 @@ def render_template(
         return match.group(0)
 
     return _VARIABLE_PATTERN.sub(_replace_match, safe_template)
+
+
+def html_to_plain_text(html_str: str) -> str:
+    """
+    Convert HTML email content to clean plain-text fallback.
+    Converts <p> to paragraph breaks, <br> to newlines, and strips HTML tags.
+    """
+    if not html_str:
+        return ""
+    text = html_str
+    # Replace <br> and <br/> with newline
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    # Replace </p> with double newline
+    text = re.sub(r"</p\s*>", "\n\n", text, flags=re.IGNORECASE)
+    # Strip remaining HTML tags
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode HTML entities
+    text = html.unescape(text)
+    # Normalize multiple newlines (max 2 consecutive)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+

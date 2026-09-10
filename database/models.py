@@ -226,6 +226,7 @@ class EmailCampaignRecipient(Base):
     __table_args__ = (
         Index("uq_campaign_business", "campaign_id", "business_id", unique=True),
         Index("ix_campaign_recipient_status", "campaign_id", "status"),
+        Index("ix_recipient_business_status", "business_id", "status"),
     )
 
 
@@ -377,6 +378,10 @@ class EmailAutomationExecution(Base):
     automation = relationship("EmailAutomation", back_populates="executions")
     business = relationship("Business", back_populates="email_executions")
     follow_up = relationship("BusinessFollowUp", back_populates="email_executions")
+
+    __table_args__ = (
+        Index("ix_exec_business_status", "business_id", "status"),
+    )
 
 
 
