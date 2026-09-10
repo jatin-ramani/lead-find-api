@@ -90,7 +90,7 @@ def test_real_startup_upgrade_reaches_session_schema(monkeypatch):
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
 
-        assert revision == "0020"
+        assert revision == "0021"
         assert "admin_sessions" in inspector.get_table_names()
         assert "business_follow_ups" in inspector.get_table_names()
         assert "email_automations" in inspector.get_table_names()
@@ -302,12 +302,12 @@ def test_upgrade_from_0007_preserves_data_and_sets_is_favorite_false(monkeypatch
                 )
             )
 
-        # 2. Upgrade from 0007 all the way to head (0020)
-        command.upgrade(alembic_cfg, "0020")
+        # 2. Upgrade from 0007 all the way to head (0021)
+        command.upgrade(alembic_cfg, "0021")
 
         with engine.connect() as conn:
             rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert rev == "0020"
+            assert rev == "0021"
 
             row = conn.execute(
                 text("SELECT name, is_favorite, lead_score, lead_grade FROM businesses WHERE place_id = 'place_acme_1'")
@@ -478,6 +478,125 @@ def test_migration_0020_downgrade_and_reupgrade(monkeypatch):
         inspector = inspect(engine)
         recip_indexes = [idx["name"] for idx in inspector.get_indexes("email_campaign_recipients")]
         assert "ix_recipient_business_status" in recip_indexes
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0021_downgrade_and_reupgrade(monkeypatch):
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, text
+
+    database_path = migrations.BACKEND_DIR / "downgrade_0021_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", True)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        migrations.run_startup_migrations()
+
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            univ_body = conn.execute(
+                text("SELECT body FROM email_templates WHERE name = 'Universal Master Cold Email — Website Mockup'")
+            ).scalar_one_or_none()
+            if univ_body:
+                assert "<p>" in univ_body
+                assert "<strong>Codebait</strong>" in univ_body
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Downgrade to 0020
+        command.downgrade(alembic_cfg, "0020")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0020"
+
+        # Re-upgrade to 0021
+        command.upgrade(alembic_cfg, "0021")
+        with engine.connect() as conn:
+            rev = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert rev == "0021"
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+        database_path.unlink(missing_ok=True)
+
+
+def test_migration_0021_preserves_custom_templates_and_upgrades_legacy_plain_text(monkeypatch):
+    """
+    Verify migration 0021:
+    1. Repairs legacy unhardened Universal Master template that lacks <p> tags.
+    2. Strictly PRESERVES intentionally customized user templates (does not overwrite custom copy).
+    """
+    from alembic.config import Config
+    from alembic import command
+    from pydantic import SecretStr
+    from sqlalchemy import create_engine, text
+
+    database_path = migrations.BACKEND_DIR / "custom_template_0021_test.db"
+    database_path.unlink(missing_ok=True)
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    engine = None
+
+    try:
+        monkeypatch.setattr(settings, "ENVIRONMENT", Environment.production)
+        monkeypatch.setattr(settings, "RUN_MIGRATIONS", False)
+        monkeypatch.setattr(settings, "DATABASE_URL", SecretStr(database_url))
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(migrations.BACKEND_DIR / "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # 1. Upgrade to 0020
+        command.upgrade(alembic_cfg, "0020")
+
+        engine = create_engine(database_url)
+        with engine.begin() as conn:
+            # Insert a legacy plain-text Universal Master template
+            conn.execute(
+                text(
+                    "INSERT INTO email_templates (name, description, subject, body, is_archived, created_at, updated_at) "
+                    "VALUES ('Universal Master Cold Email — Website Mockup', 'Legacy', 'Legacy Subject', 'Plain text without html tags', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            # Insert a custom user template
+            conn.execute(
+                text(
+                    "INSERT INTO email_templates (name, description, subject, body, is_archived, created_at, updated_at) "
+                    "VALUES ('Custom Agency Pitch', 'User created', 'Custom Subject for {{business_name}}', 'Custom body content crafted by user', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+
+        # 2. Upgrade to 0021
+        command.upgrade(alembic_cfg, "0021")
+
+        with engine.connect() as conn:
+            # Universal master template was upgraded to HTML
+            univ_row = conn.execute(
+                text("SELECT subject, body FROM email_templates WHERE name = 'Universal Master Cold Email — Website Mockup'")
+            ).mappings().one()
+            assert "<p>" in univ_row["body"]
+            assert "<strong>Codebait</strong>" in univ_row["body"]
+            assert univ_row["subject"] == "A free website mockup for {{business_name}}?"
+
+            # Custom user template was NOT touched/overwritten
+            custom_row = conn.execute(
+                text("SELECT subject, body FROM email_templates WHERE name = 'Custom Agency Pitch'")
+            ).mappings().one()
+            assert custom_row["subject"] == "Custom Subject for {{business_name}}"
+            assert custom_row["body"] == "Custom body content crafted by user"
 
     finally:
         if engine is not None:

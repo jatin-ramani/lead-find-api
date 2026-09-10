@@ -25,6 +25,7 @@ from config import settings
 from database.db import SessionLocal
 from database.models import GmailOAuthCredential
 from security.crypto import decrypt_token, encrypt_token
+from services.template_engine import ensure_html_email, html_to_plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +72,18 @@ class MockEmailProvider(BaseEmailProvider):
         text_content: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> EmailSendResult:
+        clean_html = ensure_html_email(html_content) if html_content else ""
+        clean_text = text_content if text_content is not None else (html_to_plain_text(clean_html) if clean_html else "")
+        if clean_text and ("<p" in clean_text or "<br" in clean_text or "<div" in clean_text or "<strong>" in clean_text or "<html" in clean_text):
+            clean_text = html_to_plain_text(clean_text)
+
         message_id = f"mock_{uuid.uuid4().hex[:12]}"
         record = {
             "message_id": message_id,
             "to_email": to_email,
             "subject": subject,
-            "html_content": html_content,
-            "text_content": text_content,
+            "html_content": clean_html,
+            "text_content": clean_text,
             "metadata": metadata or {},
             "sent_at": datetime.now(timezone.utc),
         }
@@ -267,18 +273,25 @@ class GmailEmailProvider(BaseEmailProvider):
                     is_transient=False,
                 )
 
-            # Build RFC 2822 MIME Message strictly using authenticated Gmail address as From
+            # Build RFC 2822 / RFC 2046 MIME Message strictly using authenticated Gmail address as From
+            clean_html = ensure_html_email(html_content) if html_content else ""
+            clean_text = text_content if text_content is not None else (html_to_plain_text(clean_html) if clean_html else "")
+            if clean_text and ("<p" in clean_text or "<br" in clean_text or "<div" in clean_text or "<strong>" in clean_text or "<html" in clean_text):
+                clean_text = html_to_plain_text(clean_text)
+
             msg = MIMEMultipart("alternative")
             msg["To"] = cleaned_to
             msg["From"] = cred.email_address
             msg["Subject"] = sanitized_subject
 
-            if text_content:
-                msg.attach(MIMEText(text_content, "plain", "utf-8"))
-            if html_content:
-                msg.attach(MIMEText(html_content, "html", "utf-8"))
-            elif not text_content:
+            # RFC 2046 Section 5.1.4: plain text must be attached first, HTML attached last
+            if clean_text:
+                msg.attach(MIMEText(clean_text, "plain", "utf-8"))
+            else:
                 msg.attach(MIMEText("", "plain", "utf-8"))
+
+            if clean_html:
+                msg.attach(MIMEText(clean_html, "html", "utf-8"))
 
             raw_bytes = msg.as_bytes()
             raw_b64 = base64.urlsafe_b64encode(raw_bytes).decode("utf-8")

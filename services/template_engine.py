@@ -104,3 +104,43 @@ def html_to_plain_text(html_str: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+
+def ensure_html_email(content: str) -> str:
+    """
+    Ensure the email body is clean, properly formatted HTML with <p> and <br> tags.
+    - If content already contains HTML block tags (<p>, <div>, <br>), returns it intact.
+    - If content is plain text, converts paragraphs (separated by double newlines) into <p> tags,
+      single line breaks into <br>, and selectively emphasizes approved cold-email value propositions.
+    """
+    if not content:
+        return ""
+
+    text = content.strip()
+    # Check if already contains HTML tags
+    if re.search(r"<(p|div|br|html|body|table)\b", text, re.IGNORECASE):
+        return text
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+    html_paragraphs = []
+
+    for p in paragraphs:
+        lines = [line.strip() for line in p.split("\n") if line.strip()]
+        p_content = "<br>\n".join(lines)
+        html_paragraphs.append(f"<p>{p_content}</p>")
+
+    html_body = "\n\n".join(html_paragraphs)
+
+    # Selectively bold approved value propositions if present in plaintext without <strong>
+    strong_phrases = [
+        "Codebait",
+        "show you what your business could look like online",
+        "free, no-obligation website mockup",
+        "Would you be open to seeing the mockup?",
+        "Jatin Ramani",
+    ]
+    for phrase in strong_phrases:
+        if phrase in html_body and f"<strong>{phrase}</strong>" not in html_body:
+            html_body = html_body.replace(phrase, f"<strong>{phrase}</strong>", 1)
+
+    return html_body
+

@@ -136,6 +136,12 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
         )
         db.add(univ_tpl)
         created.append(univ_tpl)
+    elif "<p>" not in (existing_universal.body or ""):
+        existing_universal.body = DEFAULT_UNIVERSAL_TEMPLATE["body"]
+        existing_universal.subject = DEFAULT_UNIVERSAL_TEMPLATE["subject"]
+        existing_universal.updated_at = now
+        db.commit()
+        db.refresh(existing_universal)
 
     # 2. Seed Historical Grade Templates
     for item in DEFAULT_GRADE_TEMPLATES:
@@ -165,6 +171,12 @@ def seed_default_templates(db: Session) -> List[EmailTemplate]:
             )
             db.add(tpl)
             created.append(tpl)
+        elif "<p>" not in (existing.body or ""):
+            existing.body = item["body"]
+            existing.subject = item["subject"]
+            existing.updated_at = now
+            db.commit()
+            db.refresh(existing)
 
     if created:
         db.commit()
@@ -178,6 +190,7 @@ def get_universal_master_template(db: Session) -> EmailTemplate:
     """
     Fetch the active universal master cold email template.
     If not found, creates and persists it idempotently.
+    Self-heals legacy plain-text database content to hardened HTML.
     """
     existing = (
         db.query(EmailTemplate)
@@ -193,6 +206,12 @@ def get_universal_master_template(db: Session) -> EmailTemplate:
         .first()
     )
     if existing:
+        if "<p>" not in (existing.body or ""):
+            existing.body = DEFAULT_UNIVERSAL_TEMPLATE["body"]
+            existing.subject = DEFAULT_UNIVERSAL_TEMPLATE["subject"]
+            existing.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(existing)
         return existing
 
     now = datetime.now(timezone.utc)

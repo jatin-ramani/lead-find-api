@@ -38,7 +38,7 @@ from services.activity_service import (
     ACTIVITY_EMAIL_CAMPAIGN_RECIPIENT_SENT,
     create_activity,
 )
-from services.template_engine import html_to_plain_text, render_template
+from services.template_engine import ensure_html_email, html_to_plain_text, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -380,8 +380,9 @@ def _execute_campaign_queue(campaign_id: int, sleep_fn=time.sleep) -> Dict[str, 
 
             try:
                 rendered_subject = render_template(tpl.subject, context, escape_html=False)
-                rendered_body = render_template(tpl.body, context, escape_html=True)
-                plain_body = html_to_plain_text(rendered_body) if ("<p" in rendered_body or "<br" in rendered_body) else rendered_body
+                body_to_render = ensure_html_email(tpl.body)
+                rendered_body = render_template(body_to_render, context, escape_html=True)
+                plain_body = html_to_plain_text(rendered_body)
             except Exception as e:
                 recipient.status = RECIPIENT_FAILED
                 recipient.error_message = f"Template rendering error: {str(e)}"

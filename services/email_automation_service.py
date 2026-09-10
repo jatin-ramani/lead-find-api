@@ -23,7 +23,7 @@ from services.activity_service import (
     ACTIVITY_EMAIL_SENT,
     create_activity,
 )
-from services.template_engine import render_template
+from services.template_engine import ensure_html_email, html_to_plain_text, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -511,11 +511,13 @@ def process_due_executions(
 
         try:
             # Send via provider
+            clean_html = ensure_html_email(exec_record.body_rendered)
+            plain_body = html_to_plain_text(clean_html)
             send_result = provider.send_email(
                 to_email=exec_record.recipient_email,
                 subject=exec_record.subject,
-                html_content=exec_record.body_rendered,
-                text_content=exec_record.body_rendered,
+                html_content=clean_html,
+                text_content=plain_body,
                 metadata={
                     "automation_id": exec_record.automation_id,
                     "business_id": exec_record.business_id,

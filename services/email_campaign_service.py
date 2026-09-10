@@ -28,7 +28,7 @@ from services.activity_service import (
     create_activity,
 )
 from services.email_template_service import get_template
-from services.template_engine import html_to_plain_text, render_template
+from services.template_engine import ensure_html_email, html_to_plain_text, render_template
 
 
 logger = logging.getLogger(__name__)
@@ -552,8 +552,9 @@ def execute_campaign_batch(
         }
 
         rendered_subject = render_template(template.subject, context, escape_html=False)
-        rendered_body = render_template(template.body, context, escape_html=True)
-        plain_body = html_to_plain_text(rendered_body) if ("<p" in rendered_body or "<br" in rendered_body) else rendered_body
+        body_to_render = ensure_html_email(template.body)
+        rendered_body = render_template(body_to_render, context, escape_html=True)
+        plain_body = html_to_plain_text(rendered_body)
 
         try:
             send_result = provider.send_email(
