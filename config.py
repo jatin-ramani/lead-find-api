@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3005",
+        "http://127.0.0.1:3005",
     ]
     CORS_ALLOW_CREDENTIALS: bool = True
 
